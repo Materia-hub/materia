@@ -40,7 +40,11 @@ const bucketName = 'make-8ae6fee0-listings';
 
 // Health check endpoint
 app.get("/make-server-8ae6fee0/health", (c) => {
-  return c.json({ status: "ok" });
+  return c.json({ 
+    status: "ok",
+    version: "2.1.0-distance-filter",
+    timestamp: new Date().toISOString()
+  });
 });
 
 // Sign up endpoint
@@ -52,6 +56,11 @@ app.post("/make-server-8ae6fee0/signup", async (c) => {
     if (!email || !password || !name || !businessType) {
       return c.json({ error: 'Missing required fields' }, 400);
     }
+    
+    // Check if this email should be an admin
+    // Set ADMIN_EMAIL environment variable to grant admin access to a specific email
+    const adminEmail = Deno.env.get('ADMIN_EMAIL') || '';
+    const isAdmin = email.toLowerCase() === adminEmail.toLowerCase();
     
     // Create user with Supabase Auth
     const { data, error } = await supabase.auth.admin.createUser({
@@ -66,7 +75,7 @@ app.post("/make-server-8ae6fee0/signup", async (c) => {
         subscriptionTier: 'free',
         joinDate: new Date().toISOString().split('T')[0],
         avatar: name.split(' ').map((n: string) => n[0]).join('').toUpperCase().slice(0, 2),
-        isAdmin: false,
+        isAdmin,
       },
       // Automatically confirm the user's email since an email server hasn't been configured.
       email_confirm: true
@@ -120,6 +129,7 @@ app.get("/make-server-8ae6fee0/me", async (c) => {
 // Get all listings with optional filters
 app.get("/make-server-8ae6fee0/listings", async (c) => {
   try {
+    console.log('📥 Received GET /listings request');
     const { searchParams } = new URL(c.req.url);
     const category = searchParams.get('category');
     const condition = searchParams.get('condition');
@@ -127,12 +137,20 @@ app.get("/make-server-8ae6fee0/listings", async (c) => {
     const priceMax = searchParams.get('priceMax');
     const priceMin = searchParams.get('priceMin');
 
+    console.log('🔍 Fetching all listings from KV store with prefix: listing:');
     const allListings = await kv.getByPrefix('listing:');
+    console.log(`📊 Found ${allListings.length} listings in KV store`);
     
-    let filtered = allListings.filter((item: any) => {
-      if (!item.value) return false;
-      
-      const listing = item.value;
+    if (allListings.length > 0) {
+      console.log('📋 First 3 listings:', allListings.slice(0, 3).map((listing: any) => listing?.title || 'No title'));
+    }
+    
+    // 🐛 FIX: getByPrefix returns VALUES directly, not {key, value} objects
+    let filtered = allListings.filter((listing: any) => {
+      if (!listing || !listing.title) {
+        console.warn('⚠️ Skipping invalid listing:', listing);
+        return false;
+      }
       
       // Filter by category
       if (category && category !== 'all' && listing.category !== category) return false;
@@ -149,21 +167,23 @@ app.get("/make-server-8ae6fee0/listings", async (c) => {
         if (!titleMatch && !descMatch && !locationMatch) return false;
       }
       
-      // Filter by price range
-      if (listing.pricing?.type === 'fixed') {
-        const price = listing.pricing.price;
-        if (priceMin && price < parseFloat(priceMin)) return false;
-        if (priceMax && price > parseFloat(priceMax)) return false;
+      // Filter by price range (handle both old 'pricing' and new 'price' format)
+      const itemPrice = listing.price || listing.pricing?.price;
+      if (itemPrice) {
+        if (priceMin && itemPrice < parseFloat(priceMin)) return false;
+        if (priceMax && itemPrice > parseFloat(priceMax)) return false;
       }
       
       return true;
     });
 
-    const listings = filtered.map((item: any) => item.value);
+    // 🐛 FIX: filtered already contains listing objects, no need to map
+    const listings = filtered;
+    console.log(`✅ Returning ${listings.length} listings after filtering`);
     
     return c.json({ listings });
   } catch (error) {
-    console.error('Error fetching listings:', error);
+    console.error('❌ Error fetching listings:', error);
     return c.json({ error: 'Failed to fetch listings', details: error.message }, 500);
   }
 });
@@ -188,15 +208,25 @@ app.get("/make-server-8ae6fee0/listings/:id", async (c) => {
 // Create new listing
 app.post("/make-server-8ae6fee0/listings", async (c) => {
   try {
+    console.log('📥 Received POST /listings request');
     const body = await c.req.json();
+    console.log('📦 Request body:', JSON.stringify(body, null, 2));
     const { listing } = body;
     
     if (!listing || !listing.title) {
+      console.error('❌ Invalid listing data - missing title');
       return c.json({ error: 'Invalid listing data' }, 400);
+    }
+    
+    // Validate zip code is present and valid
+    if (!listing.locationData?.zipCode || listing.locationData.zipCode.length !== 5) {
+      console.error('❌ Invalid or missing zip code');
+      return c.json({ error: 'Valid 5-digit zip code is required' }, 400);
     }
     
     // Generate unique ID
     const id = `${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
+    console.log('🆔 Generated listing ID:', id);
     
     const newListing = {
       ...listing,
@@ -205,11 +235,21 @@ app.post("/make-server-8ae6fee0/listings", async (c) => {
       updatedAt: new Date().toISOString(),
     };
     
+    console.log('💾 Saving listing to KV store with key:', `listing:${id}`);
     await kv.set(`listing:${id}`, newListing);
+    console.log('✅ Listing saved successfully!');
+    
+    // Verify it was saved
+    const verification = await kv.get(`listing:${id}`);
+    if (verification) {
+      console.log('✅ Verification: Listing retrieved from KV store');
+    } else {
+      console.error('⚠️ WARNING: Could not retrieve listing after save!');
+    }
     
     return c.json({ listing: newListing, success: true });
   } catch (error) {
-    console.error('Error creating listing:', error);
+    console.error('❌ Error creating listing:', error);
     return c.json({ error: 'Failed to create listing', details: error.message }, 500);
   }
 });
@@ -224,6 +264,11 @@ app.put("/make-server-8ae6fee0/listings/:id", async (c) => {
     const existing = await kv.get(`listing:${id}`);
     if (!existing) {
       return c.json({ error: 'Listing not found' }, 404);
+    }
+    
+    // Validate zip code if locationData is being updated
+    if (listing.locationData?.zipCode && listing.locationData.zipCode.length !== 5) {
+      return c.json({ error: 'Valid 5-digit zip code is required' }, 400);
     }
     
     const updatedListing = {
@@ -1270,6 +1315,500 @@ app.get("/make-server-8ae6fee0/sellers/:sellerId", async (c) => {
   } catch (error) {
     console.error('Error fetching seller profile:', error);
     return c.json({ error: 'Failed to fetch seller profile', details: error.message }, 500);
+  }
+});
+
+// ==================== ADMIN MANAGEMENT ====================
+
+// Make a user an admin (requires ADMIN_EMAIL to be set or checks for first user)
+app.post("/make-server-8ae6fee0/make-admin", async (c) => {
+  try {
+    const body = await c.req.json();
+    const { email } = body;
+    
+    if (!email) {
+      return c.json({ error: 'Email is required' }, 400);
+    }
+    
+    // Get the user by email
+    const { data: userData, error: userError } = await supabase.auth.admin.listUsers();
+    
+    if (userError) {
+      console.error('Error fetching users:', userError);
+      return c.json({ error: 'Failed to fetch users' }, 500);
+    }
+    
+    const targetUser = userData.users.find(u => u.email?.toLowerCase() === email.toLowerCase());
+    
+    if (!targetUser) {
+      return c.json({ error: 'User not found' }, 404);
+    }
+    
+    // Update user metadata to make them admin
+    const { error: updateError } = await supabase.auth.admin.updateUserById(
+      targetUser.id,
+      {
+        user_metadata: {
+          ...targetUser.user_metadata,
+          isAdmin: true,
+        }
+      }
+    );
+    
+    if (updateError) {
+      console.error('Error updating user:', updateError);
+      return c.json({ error: 'Failed to update user' }, 500);
+    }
+    
+    return c.json({ 
+      success: true, 
+      message: `User ${email} is now an admin`,
+      userId: targetUser.id 
+    });
+  } catch (error) {
+    console.error('Error making user admin:', error);
+    return c.json({ error: 'Failed to make user admin', details: error.message }, 500);
+  }
+});
+
+// ==================== PAYMENT PROCESSING ====================
+
+// Process payment for listings or subscriptions
+app.post("/make-server-8ae6fee0/process-payment", async (c) => {
+  try {
+    const body = await c.req.json();
+    const { userId, paymentType, amount, paymentData } = body;
+    
+    if (!userId || !paymentType || !amount || !paymentData) {
+      return c.json({ error: 'Missing required payment fields' }, 400);
+    }
+    
+    // Validate payment data
+    const { cardNumber, expiryDate, cvv, cardholderName, billingAddress } = paymentData;
+    
+    if (!cardNumber || !expiryDate || !cvv || !cardholderName || !billingAddress) {
+      return c.json({ error: 'Incomplete payment information' }, 400);
+    }
+    
+    // In a production environment, you would integrate with a payment processor like Stripe
+    // For now, we'll simulate payment processing and store the transaction
+    
+    // Simulate payment processing delay
+    await new Promise(resolve => setTimeout(resolve, 1500));
+    
+    // Create payment record
+    const paymentId = `pay_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+    const payment = {
+      id: paymentId,
+      userId,
+      paymentType,
+      amount,
+      status: 'completed',
+      // Store only last 4 digits of card for reference
+      cardLast4: cardNumber.slice(-4),
+      cardholderName,
+      billingAddress,
+      timestamp: new Date().toISOString(),
+    };
+    
+    // Store payment record
+    await kv.set(`payment:${userId}:${paymentId}`, payment);
+    
+    // Update user subscription tier based on payment type
+    const { data: userData } = await supabase.auth.admin.getUserById(userId);
+    
+    if (userData?.user) {
+      let subscriptionTier = userData.user.user_metadata?.subscriptionTier || 'free';
+      let subscriptionExpiry = null;
+      
+      if (paymentType === 'annual') {
+        subscriptionTier = 'annual';
+        // Set expiry to 1 year from now
+        const expiryDate = new Date();
+        expiryDate.setFullYear(expiryDate.getFullYear() + 1);
+        subscriptionExpiry = expiryDate.toISOString();
+      } else if (paymentType === 'pay-per-listing') {
+        // For pay-per-listing, we just record the payment
+        // The listing creation will check if they have enough credits
+        subscriptionTier = 'pay-per-listing';
+      }
+      
+      // Update user metadata
+      await supabase.auth.admin.updateUserById(
+        userId,
+        {
+          user_metadata: {
+            ...userData.user.user_metadata,
+            subscriptionTier,
+            subscriptionExpiry,
+            lastPaymentDate: new Date().toISOString(),
+          }
+        }
+      );
+    }
+    
+    // Log successful payment
+    console.log(`✅ Payment processed: ${paymentId} - ${paymentType} - ${amount}`);
+    
+    return c.json({ 
+      success: true, 
+      paymentId,
+      message: 'Payment processed successfully',
+      subscriptionTier: paymentType === 'annual' ? 'annual' : 'pay-per-listing'
+    });
+  } catch (error) {
+    console.error('Error processing payment:', error);
+    return c.json({ error: 'Payment processing failed', details: error.message }, 500);
+  }
+});
+
+// Get user payment history
+app.get("/make-server-8ae6fee0/payments", async (c) => {
+  try {
+    const accessToken = c.req.header('Authorization')?.split(' ')[1];
+    const { data: { user }, error } = await supabase.auth.getUser(accessToken);
+    
+    if (error || !user) {
+      return c.json({ error: 'Unauthorized' }, 401);
+    }
+    
+    // Get all payments for this user
+    const allPayments = await kv.getByPrefix(`payment:${user.id}:`);
+    const payments = allPayments
+      .map((item: any) => item.value)
+      .sort((a: any, b: any) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+    
+    return c.json({ payments });
+  } catch (error) {
+    console.error('Error fetching payment history:', error);
+    return c.json({ error: 'Failed to fetch payment history', details: error.message }, 500);
+  }
+});
+
+// ==================== GRANT PREMIUM STATUS ====================
+
+// Whitelist of emails that can be granted premium status for free
+const WHITELISTED_EMAILS = [
+  'dweldy9@gmail.com',
+];
+
+// Grant premium status to whitelisted users
+app.post("/make-server-8ae6fee0/grant-premium", async (c) => {
+  try {
+    const body = await c.req.json();
+    const { email } = body;
+    
+    if (!email) {
+      return c.json({ error: 'Email is required' }, 400);
+    }
+    
+    // Check if email is whitelisted
+    if (!WHITELISTED_EMAILS.includes(email.toLowerCase())) {
+      return c.json({ error: 'Email is not whitelisted for premium access' }, 403);
+    }
+    
+    // Find user by email
+    const { data: { users }, error: listError } = await supabase.auth.admin.listUsers();
+    
+    if (listError) {
+      console.error('Error listing users:', listError);
+      return c.json({ error: 'Failed to find user', details: listError.message }, 500);
+    }
+    
+    const user = users.find(u => u.email?.toLowerCase() === email.toLowerCase());
+    
+    if (!user) {
+      return c.json({ error: 'User not found with this email. Please sign up first.' }, 404);
+    }
+    
+    // Update user metadata to premium tier
+    const { error: updateError } = await supabase.auth.admin.updateUserById(
+      user.id,
+      {
+        user_metadata: {
+          ...user.user_metadata,
+          subscriptionTier: 'premium',
+          membershipStatus: 'Premium',
+          subscriptionExpiry: null, // No expiry for whitelisted accounts
+          isPremium: true,
+          isWhitelisted: true,
+          whitelistedAt: new Date().toISOString(),
+        }
+      }
+    );
+    
+    if (updateError) {
+      console.error('Error updating user:', updateError);
+      return c.json({ error: 'Failed to grant premium status', details: updateError.message }, 500);
+    }
+    
+    console.log(`✅ Granted premium status to: ${email}`);
+    
+    return c.json({ 
+      success: true,
+      message: `Premium status granted to ${email}`,
+      membershipStatus: 'Premium',
+      subscriptionTier: 'premium',
+      email: email,
+    });
+  } catch (error) {
+    console.error('Error granting premium:', error);
+    return c.json({ error: 'Failed to grant premium status', details: error.message }, 500);
+  }
+});
+
+// ==================== STRIPE INTEGRATION ====================
+
+// Create Stripe Payment Intent for listing payment or subscription
+app.post("/make-server-8ae6fee0/create-payment-intent", async (c) => {
+  try {
+    const accessToken = c.req.header('Authorization')?.split(' ')[1];
+    const { data: { user }, error } = await supabase.auth.getUser(accessToken);
+    
+    if (error || !user) {
+      return c.json({ error: 'Unauthorized' }, 401);
+    }
+    
+    const body = await c.req.json();
+    const { amount, paymentType } = body; // amount in cents, paymentType: 'pay-per-listing' or 'annual'
+    
+    if (!amount || !paymentType) {
+      return c.json({ error: 'Amount and payment type are required' }, 400);
+    }
+    
+    const STRIPE_SECRET_KEY = Deno.env.get('STRIPE_SECRET_KEY');
+    
+    if (!STRIPE_SECRET_KEY) {
+      console.log('Stripe not configured, using test mode');
+      // Return a test payment intent ID
+      return c.json({ 
+        clientSecret: `pi_test_${Date.now()}_secret_${Math.random().toString(36).substring(2, 9)}`,
+        testMode: true,
+        message: 'Stripe not configured - test mode active'
+      });
+    }
+    
+    // Create Stripe Payment Intent
+    const stripeResponse = await fetch('https://api.stripe.com/v1/payment_intents', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${STRIPE_SECRET_KEY}`,
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      body: new URLSearchParams({
+        amount: amount.toString(),
+        currency: 'usd',
+        'metadata[userId]': user.id,
+        'metadata[email]': user.email || '',
+        'metadata[paymentType]': paymentType,
+        'metadata[userName]': user.user_metadata?.name || 'Unknown',
+      }).toString(),
+    });
+    
+    if (!stripeResponse.ok) {
+      const error = await stripeResponse.text();
+      console.error('Stripe API error:', error);
+      return c.json({ error: 'Failed to create payment intent', details: error }, 500);
+    }
+    
+    const paymentIntent = await stripeResponse.json();
+    
+    return c.json({ 
+      clientSecret: paymentIntent.client_secret,
+      paymentIntentId: paymentIntent.id,
+    });
+  } catch (error) {
+    console.error('Error creating payment intent:', error);
+    return c.json({ error: 'Failed to create payment intent', details: error.message }, 500);
+  }
+});
+
+// Confirm Stripe payment and update user subscription
+app.post("/make-server-8ae6fee0/confirm-stripe-payment", async (c) => {
+  try {
+    const accessToken = c.req.header('Authorization')?.split(' ')[1];
+    const { data: { user }, error } = await supabase.auth.getUser(accessToken);
+    
+    if (error || !user) {
+      return c.json({ error: 'Unauthorized' }, 401);
+    }
+    
+    const body = await c.req.json();
+    const { paymentIntentId, paymentType } = body;
+    
+    if (!paymentIntentId || !paymentType) {
+      return c.json({ error: 'Payment intent ID and type are required' }, 400);
+    }
+    
+    const STRIPE_SECRET_KEY = Deno.env.get('STRIPE_SECRET_KEY');
+    
+    // If Stripe is not configured, simulate success
+    if (!STRIPE_SECRET_KEY || paymentIntentId.startsWith('pi_test_')) {
+      console.log('Test mode: Simulating successful payment');
+      
+      // Update user subscription
+      const { data: userData } = await supabase.auth.admin.getUserById(user.id);
+      
+      if (userData?.user) {
+        let subscriptionTier = 'free';
+        let subscriptionExpiry = null;
+        
+        if (paymentType === 'annual') {
+          subscriptionTier = 'annual';
+          const expiryDate = new Date();
+          expiryDate.setFullYear(expiryDate.getFullYear() + 1);
+          subscriptionExpiry = expiryDate.toISOString();
+        } else if (paymentType === 'pay-per-listing') {
+          subscriptionTier = 'pay-per-listing';
+        }
+        
+        await supabase.auth.admin.updateUserById(
+          user.id,
+          {
+            user_metadata: {
+              ...userData.user.user_metadata,
+              subscriptionTier,
+              subscriptionExpiry,
+              membershipStatus: paymentType === 'annual' ? 'Annual' : 'Pay-per-listing',
+              lastPaymentDate: new Date().toISOString(),
+            }
+          }
+        );
+      }
+      
+      return c.json({ 
+        success: true,
+        message: 'Payment confirmed (test mode)',
+        subscriptionTier: paymentType,
+        testMode: true,
+      });
+    }
+    
+    // Verify payment with Stripe
+    const stripeResponse = await fetch(`https://api.stripe.com/v1/payment_intents/${paymentIntentId}`, {
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${STRIPE_SECRET_KEY}`,
+      },
+    });
+    
+    if (!stripeResponse.ok) {
+      const error = await stripeResponse.text();
+      console.error('Stripe verification error:', error);
+      return c.json({ error: 'Failed to verify payment', details: error }, 500);
+    }
+    
+    const paymentIntent = await stripeResponse.json();
+    
+    if (paymentIntent.status !== 'succeeded') {
+      return c.json({ error: 'Payment not completed', status: paymentIntent.status }, 400);
+    }
+    
+    // Update user subscription
+    const { data: userData } = await supabase.auth.admin.getUserById(user.id);
+    
+    if (userData?.user) {
+      let subscriptionTier = 'free';
+      let subscriptionExpiry = null;
+      
+      if (paymentType === 'annual') {
+        subscriptionTier = 'annual';
+        const expiryDate = new Date();
+        expiryDate.setFullYear(expiryDate.getFullYear() + 1);
+        subscriptionExpiry = expiryDate.toISOString();
+      } else if (paymentType === 'pay-per-listing') {
+        subscriptionTier = 'pay-per-listing';
+      }
+      
+      await supabase.auth.admin.updateUserById(
+        user.id,
+        {
+          user_metadata: {
+            ...userData.user.user_metadata,
+            subscriptionTier,
+            subscriptionExpiry,
+            membershipStatus: paymentType === 'annual' ? 'Annual' : 'Pay-per-listing',
+            lastPaymentDate: new Date().toISOString(),
+          }
+        }
+      );
+      
+      // Store payment record
+      const paymentId = `${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
+      const payment = {
+        id: paymentId,
+        userId: user.id,
+        paymentType,
+        amount: paymentIntent.amount / 100, // Convert cents to dollars
+        status: 'completed',
+        stripePaymentIntentId: paymentIntentId,
+        timestamp: new Date().toISOString(),
+      };
+      
+      await kv.set(`payment:${user.id}:${paymentId}`, payment);
+    }
+    
+    return c.json({ 
+      success: true,
+      message: 'Payment confirmed successfully',
+      subscriptionTier: paymentType,
+    });
+  } catch (error) {
+    console.error('Error confirming payment:', error);
+    return c.json({ error: 'Failed to confirm payment', details: error.message }, 500);
+  }
+});
+
+// Check account status by email (for admin use)
+app.post("/make-server-8ae6fee0/check-account-status", async (c) => {
+  try {
+    const body = await c.req.json();
+    const { email } = body;
+    
+    if (!email) {
+      return c.json({ error: 'Email is required' }, 400);
+    }
+    
+    // Find user by email
+    const { data: { users }, error: listError } = await supabase.auth.admin.listUsers();
+    
+    if (listError) {
+      console.error('Error listing users:', listError);
+      return c.json({ error: 'Failed to find user', details: listError.message }, 500);
+    }
+    
+    const user = users.find(u => u.email?.toLowerCase() === email.toLowerCase());
+    
+    if (!user) {
+      return c.json({ error: 'User not found with this email' }, 404);
+    }
+    
+    // Get user's listings count
+    const allListings = await kv.getByPrefix('listing:');
+    const userListings = allListings.filter((item: any) => item.sellerId === user.id || item.value?.sellerId === user.id);
+    
+    // Get payment history
+    const payments = await kv.getByPrefix(`payment:${user.id}:`);
+    
+    // Construct status response
+    const status = {
+      email: user.email,
+      name: user.user_metadata?.name || 'Unknown',
+      subscriptionTier: user.user_metadata?.subscriptionTier || 'free',
+      membershipStatus: user.user_metadata?.membershipStatus || 'Free',
+      isPremium: user.user_metadata?.isPremium || false,
+      isWhitelisted: user.user_metadata?.isWhitelisted || false,
+      subscriptionExpiry: user.user_metadata?.subscriptionExpiry || null,
+      joinDate: user.user_metadata?.joinDate || user.created_at,
+      totalListings: userListings.length,
+      totalPayments: payments.length,
+      lastPaymentDate: user.user_metadata?.lastPaymentDate || null,
+    };
+    
+    return c.json({ success: true, status });
+  } catch (error) {
+    console.error('Error checking account status:', error);
+    return c.json({ error: 'Failed to check account status', details: error.message }, 500);
   }
 });
 

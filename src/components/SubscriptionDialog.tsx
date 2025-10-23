@@ -1,15 +1,16 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from './ui/dialog';
 import { Button } from './ui/button';
 import { Card } from './ui/card';
-import { Check, Zap, Crown } from 'lucide-react';
+import { Check, Zap, Crown, ArrowLeft } from 'lucide-react';
 import { Badge } from './ui/badge';
+import PaymentForm, { PaymentData } from './PaymentForm';
 
 interface SubscriptionDialogProps {
   open: boolean;
   onClose: () => void;
-  onSelectPayPerListing: () => void;
-  onSelectAnnual: () => void;
+  onSelectPayPerListing: (paymentData: PaymentData) => void;
+  onSelectAnnual: (paymentData: PaymentData) => void;
   currentListingCount: number;
 }
 
@@ -20,17 +21,89 @@ export default function SubscriptionDialog({
   onSelectAnnual,
   currentListingCount 
 }: SubscriptionDialogProps) {
-  return (
-    <Dialog open={open} onOpenChange={onClose}>
-      <DialogContent className="max-w-3xl">
-        <DialogHeader>
-          <DialogTitle className="text-blue-900">Listing Limit Reached</DialogTitle>
-          <DialogDescription>
-            You've used your {currentListingCount} free listings. Choose a plan to continue listing:
-          </DialogDescription>
-        </DialogHeader>
+  const [showPaymentForm, setShowPaymentForm] = useState(false);
+  const [selectedPlan, setSelectedPlan] = useState<'pay-per-listing' | 'annual' | null>(null);
+  const [processing, setProcessing] = useState(false);
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+  const handlePlanSelect = (plan: 'pay-per-listing' | 'annual') => {
+    setSelectedPlan(plan);
+    setShowPaymentForm(true);
+  };
+
+  const handlePaymentSubmit = async (paymentData: PaymentData) => {
+    setProcessing(true);
+    try {
+      if (selectedPlan === 'pay-per-listing') {
+        await onSelectPayPerListing(paymentData);
+      } else if (selectedPlan === 'annual') {
+        await onSelectAnnual(paymentData);
+      }
+      setShowPaymentForm(false);
+      setSelectedPlan(null);
+    } catch (error) {
+      console.error('Payment error:', error);
+    } finally {
+      setProcessing(false);
+    }
+  };
+
+  const handleBack = () => {
+    setShowPaymentForm(false);
+    setSelectedPlan(null);
+  };
+
+  const handleDialogClose = (open: boolean) => {
+    if (!open) {
+      setShowPaymentForm(false);
+      setSelectedPlan(null);
+      onClose();
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={handleDialogClose}>
+      <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+        {showPaymentForm ? (
+          <>
+            <DialogHeader>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={handleBack}
+                  disabled={processing}
+                >
+                  <ArrowLeft className="w-4 h-4" />
+                </Button>
+                <div>
+                  <DialogTitle className="text-blue-900">
+                    {selectedPlan === 'annual' ? 'Annual Plan Payment' : 'Pay Per Listing'}
+                  </DialogTitle>
+                  <DialogDescription>
+                    Enter your payment information to complete your purchase
+                  </DialogDescription>
+                </div>
+              </div>
+            </DialogHeader>
+
+            <PaymentForm
+              amount={selectedPlan === 'annual' ? 20 : 0.99}
+              planType={selectedPlan!}
+              onSubmit={handlePaymentSubmit}
+              onCancel={handleBack}
+              loading={processing}
+            />
+          </>
+        ) : (
+          <>
+            <DialogHeader>
+              <DialogTitle className="text-blue-900">Listing Limit Reached</DialogTitle>
+              <DialogDescription>
+                You've used your {currentListingCount} free listings. Choose a plan to continue listing:
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
           {/* Pay Per Listing */}
           <Card className="p-6 border-2 border-blue-200 hover:border-blue-400 transition-colors">
             <div className="flex items-start justify-between mb-4">
@@ -66,10 +139,10 @@ export default function SubscriptionDialog({
             </ul>
 
             <Button 
-              onClick={onSelectPayPerListing}
+              onClick={() => handlePlanSelect('pay-per-listing')}
               className="w-full bg-blue-600 hover:bg-blue-700"
             >
-              Pay $0.99 for This Listing
+              Continue to Payment
             </Button>
           </Card>
 
@@ -115,19 +188,21 @@ export default function SubscriptionDialog({
             </ul>
 
             <Button 
-              onClick={onSelectAnnual}
+              onClick={() => handlePlanSelect('annual')}
               className="w-full bg-blue-600 hover:bg-blue-700"
             >
-              Subscribe for $20/Year
+              Continue to Payment
             </Button>
           </Card>
         </div>
 
-        <div className="mt-4 text-center">
-          <Button variant="ghost" onClick={onClose} className="text-muted-foreground">
-            I'll decide later
-          </Button>
-        </div>
+            <div className="mt-4 text-center">
+              <Button variant="ghost" onClick={onClose} className="text-muted-foreground">
+                I'll decide later
+              </Button>
+            </div>
+          </>
+        )}
       </DialogContent>
     </Dialog>
   );

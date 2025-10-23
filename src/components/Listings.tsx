@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Search, SlidersHorizontal, MapPin, CheckCircle, ArrowUpDown, Navigation, Plus } from 'lucide-react';
+import { Search, SlidersHorizontal, MapPin, CheckCircle, ArrowUpDown, Navigation, Plus, X } from 'lucide-react';
 import { Card } from './ui/card';
 import { Input } from './ui/input';
 import { Button } from './ui/button';
@@ -13,15 +13,17 @@ import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTr
 import { api } from '../utils/api';
 import { toast } from 'sonner@2.0.3';
 import { calculateDistance, getCoordinatesFromZip, parseLocation, getUserLocation } from '../utils/distance';
+import ListingDebugger from './ListingDebugger';
 
 interface ListingsProps {
   accessToken: string | null;
   currentUserId: string;
   onViewListing: (listingId: string) => void;
   onEditListing: (listingId: string) => void;
+  listings: Listing[];
 }
 
-export default function Listings({ accessToken, currentUserId, onViewListing, onEditListing }: ListingsProps) {
+export default function Listings({ accessToken, currentUserId, onViewListing, onEditListing, listings }: ListingsProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('All Categories');
   const [selectedCondition, setSelectedCondition] = useState('All Conditions');
@@ -30,8 +32,6 @@ export default function Listings({ accessToken, currentUserId, onViewListing, on
   const [verifiedOnly, setVerifiedOnly] = useState(false);
   const [selectedState, setSelectedState] = useState('All States');
   const [sortBy, setSortBy] = useState('newest');
-  const [backendListings, setBackendListings] = useState<Listing[]>([]);
-  const [loading, setLoading] = useState(true);
   
   // Distance filter states
   const [userZipCode, setUserZipCode] = useState('');
@@ -39,28 +39,11 @@ export default function Listings({ accessToken, currentUserId, onViewListing, on
   const [distanceEnabled, setDistanceEnabled] = useState(false);
   const [maxDistance, setMaxDistance] = useState([500]); // in miles
 
-  // Fetch listings from backend
-  useEffect(() => {
-    fetchListings();
-  }, []);
-
-  const fetchListings = async () => {
-    try {
-      setLoading(true);
-      const response = await api.getListings();
-      setBackendListings(response.listings || []);
-    } catch (error) {
-      console.error('Error fetching listings:', error);
-      toast.error('Failed to load listings');
-      // Fallback to mock data if backend fails
-      setBackendListings([]);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // Use backend listings if available, otherwise use mock data
-  const allListings = backendListings.length > 0 ? backendListings : mockListings;
+  // Use listings from props (managed by App.tsx)
+  const allListings = listings;
+  
+  console.log('📋 Listings Component - Received listings:', allListings.length);
+  console.log('📋 Listings Component - Listings:', allListings.map(l => ({ id: l.id, title: l.title, sellerId: l.sellerId })));
 
   // Extract unique states for filtering
   const uniqueStates = ['All States', ...Array.from(new Set(
@@ -238,17 +221,21 @@ export default function Listings({ accessToken, currentUserId, onViewListing, on
             
             {userCoordinates && (
               <div>
-                <Label>Maximum Distance: {maxDistance[0]} miles</Label>
+                <Label>Maximum Distance: {maxDistance[0] >= 1000 ? 'Nationwide' : `${maxDistance[0]} miles`}</Label>
                 <Slider
                   value={maxDistance}
                   onValueChange={setMaxDistance}
                   min={10}
-                  max={500}
+                  max={1000}
                   step={10}
                   className="mt-3"
                 />
+                <div className="flex justify-between text-xs text-muted-foreground mt-2">
+                  <span>10 mi</span>
+                  <span>Nationwide</span>
+                </div>
                 <p className="text-xs text-muted-foreground mt-1">
-                  Show listings within {maxDistance[0]} miles
+                  Show listings within {maxDistance[0] >= 1000 ? 'nationwide range' : `${maxDistance[0]} miles`}
                 </p>
               </div>
             )}
@@ -301,6 +288,9 @@ export default function Listings({ accessToken, currentUserId, onViewListing, on
 
   return (
     <div className="space-y-6">
+      {/* Debug Info */}
+      <ListingDebugger listings={listings} currentUserId={currentUserId} />
+      
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
           <h2 className="text-blue-900 mb-2">Browse Materials</h2>
@@ -319,78 +309,125 @@ export default function Listings({ accessToken, currentUserId, onViewListing, on
 
       {/* Search and Filters */}
       <Card className="p-4">
-        <div className="flex flex-col md:flex-row gap-4">
-          <div className="flex-1 relative">
-            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground w-5 h-5" />
-            <Input
-              type="text"
-              placeholder="Search materials..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="pl-10"
-            />
-          </div>
-          
-          <div className="flex gap-2">
-            <Select value={sortBy} onValueChange={setSortBy}>
-              <SelectTrigger className="w-[180px]">
-                <ArrowUpDown className="w-4 h-4 mr-2" />
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="newest">Newest First</SelectItem>
-                <SelectItem value="price-low">Price: Low to High</SelectItem>
-                <SelectItem value="price-high">Price: High to Low</SelectItem>
-                <SelectItem value="location">Location (A-Z)</SelectItem>
-                {userCoordinates && <SelectItem value="distance">Distance (Nearest)</SelectItem>}
-              </SelectContent>
-            </Select>
-
-            {/* Desktop Filters */}
-            <div className="hidden lg:block">
-              <Sheet>
-                <SheetTrigger asChild>
-                  <Button variant="outline">
-                    <SlidersHorizontal className="w-4 h-4 mr-2" />
-                    Filters
-                  </Button>
-                </SheetTrigger>
-                <SheetContent>
-                  <SheetHeader>
-                    <SheetTitle>Filter Listings</SheetTitle>
-                    <SheetDescription>
-                      Refine your search with filters
-                    </SheetDescription>
-                  </SheetHeader>
-                  <div className="mt-6">
-                    <FiltersContent />
-                  </div>
-                </SheetContent>
-              </Sheet>
+        <div className="flex flex-col gap-4">
+          {/* Search and Sort Row */}
+          <div className="flex flex-col md:flex-row gap-4">
+            <div className="flex-1 relative">
+              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground w-5 h-5" />
+              <Input
+                type="text"
+                placeholder="Search materials..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="pl-10"
+              />
             </div>
+            
+            <div className="flex gap-2">
+              <Select value={sortBy} onValueChange={setSortBy}>
+                <SelectTrigger className="w-[180px]">
+                  <ArrowUpDown className="w-4 h-4 mr-2" />
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="newest">Newest First</SelectItem>
+                  <SelectItem value="price-low">Price: Low to High</SelectItem>
+                  <SelectItem value="price-high">Price: High to Low</SelectItem>
+                  <SelectItem value="location">Location (A-Z)</SelectItem>
+                  {userCoordinates && <SelectItem value="distance">Distance (Nearest)</SelectItem>}
+                </SelectContent>
+              </Select>
 
-            {/* Mobile Filters */}
-            <div className="lg:hidden">
-              <Sheet>
-                <SheetTrigger asChild>
-                  <Button variant="outline">
-                    <SlidersHorizontal className="w-4 h-4" />
-                  </Button>
-                </SheetTrigger>
-                <SheetContent side="left">
-                  <SheetHeader>
-                    <SheetTitle>Filter Listings</SheetTitle>
-                    <SheetDescription>
-                      Refine your search with filters
-                    </SheetDescription>
-                  </SheetHeader>
-                  <div className="mt-6">
-                    <FiltersContent />
-                  </div>
-                </SheetContent>
-              </Sheet>
+              {/* Desktop Filters */}
+              <div className="hidden lg:block">
+                <Sheet>
+                  <SheetTrigger asChild>
+                    <Button variant="outline">
+                      <SlidersHorizontal className="w-4 h-4 mr-2" />
+                      Filters
+                    </Button>
+                  </SheetTrigger>
+                  <SheetContent>
+                    <SheetHeader>
+                      <SheetTitle>Filter Listings</SheetTitle>
+                      <SheetDescription>
+                        Refine your search with filters
+                      </SheetDescription>
+                    </SheetHeader>
+                    <div className="mt-6">
+                      <FiltersContent />
+                    </div>
+                  </SheetContent>
+                </Sheet>
+              </div>
+
+              {/* Mobile Filters */}
+              <div className="lg:hidden">
+                <Sheet>
+                  <SheetTrigger asChild>
+                    <Button variant="outline">
+                      <SlidersHorizontal className="w-4 h-4" />
+                    </Button>
+                  </SheetTrigger>
+                  <SheetContent side="left">
+                    <SheetHeader>
+                      <SheetTitle>Filter Listings</SheetTitle>
+                      <SheetDescription>
+                        Refine your search with filters
+                      </SheetDescription>
+                    </SheetHeader>
+                    <div className="mt-6">
+                      <FiltersContent />
+                    </div>
+                  </SheetContent>
+                </Sheet>
+              </div>
             </div>
           </div>
+
+          {/* Distance Filter Quick Access */}
+          {distanceEnabled && userCoordinates && (
+            <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+              <div className="flex items-center gap-2 flex-shrink-0">
+                <MapPin className="w-4 h-4 text-blue-600" />
+                <span className="text-sm text-blue-900">Distance Filter Active:</span>
+              </div>
+              <div className="flex items-center gap-3 flex-1">
+                <span className="text-sm text-blue-700">Within</span>
+                <Select 
+                  value={maxDistance[0].toString()} 
+                  onValueChange={(value) => setMaxDistance([parseInt(value)])}
+                >
+                  <SelectTrigger className="w-[140px] h-9 bg-white">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="10">10 miles</SelectItem>
+                    <SelectItem value="25">25 miles</SelectItem>
+                    <SelectItem value="50">50 miles</SelectItem>
+                    <SelectItem value="100">100 miles</SelectItem>
+                    <SelectItem value="250">250 miles</SelectItem>
+                    <SelectItem value="500">500 miles</SelectItem>
+                    <SelectItem value="1000">Nationwide</SelectItem>
+                  </SelectContent>
+                </Select>
+                <span className="text-sm text-blue-700">of {userZipCode === 'Current Location' ? 'your location' : `ZIP ${userZipCode}`}</span>
+              </div>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => {
+                  setDistanceEnabled(false);
+                  setUserZipCode('');
+                  setUserCoordinates(null);
+                }}
+                className="text-blue-600 hover:text-blue-800 hover:bg-blue-100"
+              >
+                <X className="w-4 h-4 mr-1" />
+                Clear
+              </Button>
+            </div>
+          )}
         </div>
       </Card>
 

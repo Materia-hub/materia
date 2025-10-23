@@ -10,6 +10,7 @@ import { Switch } from './ui/switch';
 import { toast } from 'sonner@2.0.3';
 import { mockListings, categories, conditions, Listing, BulkPricingTier } from './data/mockData';
 import SubscriptionDialog from './SubscriptionDialog';
+import { PaymentData } from './PaymentForm';
 import { api } from '../utils/api';
 
 interface CreateListingProps {
@@ -50,7 +51,7 @@ export default function CreateListing({ accessToken, editingListingId, onBack, o
   
   // Calculate user's listing count
   const userListingCount = listings.filter(l => l.sellerId === currentUser.id).length;
-  const FREE_LISTING_LIMIT = 3;
+  const FREE_LISTING_LIMIT = 10;
   const canCreateFree = userListingCount < FREE_LISTING_LIMIT || currentUser.subscriptionTier === 'annual';
   
   const [showSubscriptionDialog, setShowSubscriptionDialog] = useState(false);
@@ -105,25 +106,47 @@ export default function CreateListing({ accessToken, editingListingId, onBack, o
     }
   }, [editingListingId, listings]);
 
-  const handlePayPerListing = async () => {
+  const handlePayPerListing = async (paymentData: PaymentData) => {
     try {
-      // TODO: Implement API call to update subscription
-      // await api.updateSubscription(currentUser.id, 'pay-per-listing');
-      setShowSubscriptionDialog(false);
-      toast.success('Subscription updated to pay-per-listing');
+      // Process payment and update subscription
+      const response = await api.processPayment({
+        userId: currentUser.id,
+        paymentType: 'pay-per-listing',
+        amount: 0.99,
+        paymentData,
+      });
+
+      if (response.success) {
+        setShowSubscriptionDialog(false);
+        toast.success('Payment successful! You can now create your listing.');
+      } else {
+        toast.error('Payment failed. Please try again.');
+      }
     } catch (error) {
-      toast.error('Failed to update subscription');
+      console.error('Payment error:', error);
+      toast.error('Failed to process payment. Please check your card details.');
     }
   };
 
-  const handleAnnualSubscription = async () => {
+  const handleAnnualSubscription = async (paymentData: PaymentData) => {
     try {
-      // TODO: Implement API call to update subscription
-      // await api.updateSubscription(currentUser.id, 'annual');
-      setShowSubscriptionDialog(false);
-      toast.success('Annual subscription activated!');
+      // Process payment and update subscription
+      const response = await api.processPayment({
+        userId: currentUser.id,
+        paymentType: 'annual',
+        amount: 20,
+        paymentData,
+      });
+
+      if (response.success) {
+        setShowSubscriptionDialog(false);
+        toast.success('Annual subscription activated! Enjoy unlimited listings.');
+      } else {
+        toast.error('Payment failed. Please try again.');
+      }
     } catch (error) {
-      toast.error('Failed to update subscription');
+      console.error('Payment error:', error);
+      toast.error('Failed to process payment. Please check your card details.');
     }
   };
 
@@ -257,6 +280,11 @@ export default function CreateListing({ accessToken, editingListingId, onBack, o
       return;
     }
 
+    if (!zipCode || zipCode.length !== 5) {
+      toast.error('Please enter a valid 5-digit zip code');
+      return;
+    }
+
     if (pricingType === 'per-item' && !price) {
       toast.error('Please enter a price');
       return;
@@ -279,7 +307,7 @@ export default function CreateListing({ accessToken, editingListingId, onBack, o
     const locationData = location ? {
       city: location.split(', ')[0] || 'Unknown',
       state: location.split(', ')[1] || 'Unknown',
-      zipCode: zipCode || '00000',
+      zipCode: zipCode,
     } : undefined;
 
     // Prepare listing data
@@ -314,10 +342,21 @@ export default function CreateListing({ accessToken, editingListingId, onBack, o
         postedDate: new Date().toISOString(),
       };
 
+      console.log('💾 Creating listing with sellerId:', currentUser.id);
+      console.log('📦 Full listing data:', fullListingData);
+
+      let response;
       if (editingListingId) {
-        await api.updateListing(editingListingId, fullListingData);
+        response = await api.updateListing(editingListingId, fullListingData);
+        console.log('✅ Listing updated:', response);
       } else {
-        await api.createListing(fullListingData);
+        response = await api.createListing(fullListingData);
+        console.log('✅ Listing created:', response);
+      }
+
+      // Verify the listing was saved
+      if (response && response.listing) {
+        console.log('✅ Backend confirmed save. Listing ID:', response.listing.id);
       }
 
       toast.success(editingListingId ? 'Listing updated successfully!' : 'Listing created successfully!');
@@ -688,7 +727,7 @@ export default function CreateListing({ accessToken, editingListingId, onBack, o
                   </p>
                 </div>
                 <div>
-                  <Label htmlFor="zipCode">Zip Code (Optional)</Label>
+                  <Label htmlFor="zipCode">Zip Code *</Label>
                   <Input
                     id="zipCode"
                     value={zipCode}
@@ -696,7 +735,11 @@ export default function CreateListing({ accessToken, editingListingId, onBack, o
                     placeholder="12345"
                     className="mt-2"
                     maxLength={5}
+                    required
                   />
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Required for distance-based search
+                  </p>
                 </div>
               </div>
 

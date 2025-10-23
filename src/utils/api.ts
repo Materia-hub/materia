@@ -306,6 +306,18 @@ export const api = {
     
     return response.json();
   },
+
+  processPayment: async (paymentRequest: {
+    userId: string;
+    paymentType: 'pay-per-listing' | 'annual';
+    amount: number;
+    paymentData: any;
+  }) => {
+    return fetchAPI('/process-payment', {
+      method: 'POST',
+      body: paymentRequest,
+    });
+  },
   
   // Messages
   getConversations: async (accessToken: string) => {

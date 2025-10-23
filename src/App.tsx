@@ -21,8 +21,11 @@ import Favorites from './components/Favorites';
 import SellerAnalytics from './components/SellerAnalytics';
 import SavedSearches from './components/SavedSearches';
 import NotificationPreferences from './components/NotificationPreferences';
+import DeploymentStatus from './components/DeploymentStatus';
+import DebugModeBanner from './components/DebugModeBanner';
 import { mockListings, Listing } from './components/data/mockData';
 import { api } from './utils/api';
+import { DEBUG_MODE, SHOW_DEPLOYMENT_STATUS } from './utils/config';
 
 // NOTE: SellerDirectory, ActivityFeed, and SellerProfile are excluded due to Figma webpack errors
 
@@ -88,14 +91,27 @@ function App() {
   // Load listings from backend
   const loadListings = async () => {
     try {
+      console.log('📥 Loading listings from backend...');
       const response = await api.getListings();
+      console.log('📡 Backend response:', response);
       const backendListings = response.listings || [];
-      // Merge backend listings with mock data, preferring backend
+      console.log(`✅ Loaded ${backendListings.length} listings from backend`);
+      
+      if (backendListings.length > 0) {
+        console.log('📋 First listing:', backendListings[0]);
+        console.log('👤 Current user ID:', currentUser?.id);
+      } else {
+        console.warn('⚠️ No listings returned from backend!');
+      }
+      
+      // Use backend listings if available, otherwise fallback to mock data (which is now empty)
       const allListings = backendListings.length > 0 ? backendListings : mockListings;
+      console.log(`📊 Setting ${allListings.length} total listings in state`);
       setListings(allListings);
     } catch (error) {
-      console.error('Error loading listings:', error);
-      // Keep using mock data on error
+      console.error('❌ Error loading listings:', error);
+      // Fallback to mock data on error (which is now empty)
+      setListings(mockListings);
     }
   };
 
@@ -122,7 +138,8 @@ function App() {
   };
 
   const handleOnboardingComplete = async (userData: any) => {
-    console.log('User logged in:', userData);
+    console.log('👤 User logged in:', userData);
+    console.log('🆔 User ID:', userData.id);
     const userWithDefaults = {
       ...userData,
       subscriptionTier: userData.subscriptionTier || 'free',
@@ -137,6 +154,10 @@ function App() {
     if (data.session) {
       setAccessToken(data.session.access_token);
     }
+    
+    // Load listings after login
+    console.log('🔄 Loading listings after login...');
+    await loadListings();
   };
 
   const handleLogout = async () => {
@@ -168,6 +189,16 @@ function App() {
     setEditingListingId(null);
     loadListings(); // Refresh listings when returning
     setCurrentView('listings');
+  };
+
+  const handleNavigate = (page: string) => {
+    console.log(`🧭 Navigating to: ${page}`);
+    // Refresh listings when navigating to pages that display listings
+    if (page === 'listings' || page === 'dashboard') {
+      console.log('📥 Refreshing listings...');
+      loadListings();
+    }
+    setCurrentView(page as View);
   };
 
   const handleUpdateProfile = (updatedUser: Partial<User>) => {
@@ -222,9 +253,10 @@ function App() {
         if (!currentUser) return null;
         return (
           <Dashboard
-            onNavigate={(page: string) => setCurrentView(page as View)}
+            onNavigate={handleNavigate}
             onViewListing={handleViewListing}
             onDeleteListing={handleDeleteListing}
+            onRefreshListings={loadListings}
             listings={listings}
             currentUser={{
               id: currentUser.id,
@@ -240,6 +272,7 @@ function App() {
             currentUserId={currentUser?.id || ''}
             onViewListing={handleViewListing}
             onEditListing={handleEditListing}
+            listings={listings}
           />
         );
       case 'listing-detail':
@@ -309,7 +342,7 @@ function App() {
               isAdmin: currentUser.isAdmin || currentUser.role === 'admin',
             }}
             onUpdateUser={handleUpdateProfile}
-            onNavigate={(page: string) => setCurrentView(page as View)}
+            onNavigate={handleNavigate}
           />
         );
       case 'notifications':
@@ -369,14 +402,16 @@ function App() {
               currentUserId={''}
               onViewListing={handleViewListing}
               onEditListing={handleEditListing}
+              listings={listings}
             />
           );
         }
         return (
           <Dashboard
-            onNavigate={(page: string) => setCurrentView(page as View)}
+            onNavigate={handleNavigate}
             onViewListing={handleViewListing}
             onDeleteListing={handleDeleteListing}
+            onRefreshListings={loadListings}
             listings={listings}
             currentUser={{
               id: currentUser.id,
@@ -391,12 +426,15 @@ function App() {
   return (
     <ErrorBoundary>
       <div className="min-h-screen bg-gradient-to-br from-blue-50 via-sky-50 to-blue-100">
+        {/* Debug Mode Warning Banner */}
+        <DebugModeBanner />
+        
         {/* Header */}
         <header className="bg-white border-b border-blue-100 sticky top-0 z-50 shadow-sm">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="flex justify-between items-center h-16">
               {/* Logo */}
-              <div className="flex items-center gap-3 cursor-pointer" onClick={() => setCurrentView('listings')}>
+              <div className="flex items-center gap-3 cursor-pointer" onClick={() => handleNavigate('listings')}>
                 <h1 className="text-xl materia-brand">Materia</h1>
               </div>
 
@@ -406,7 +444,7 @@ function App() {
                 <Button
                   variant={currentView === 'listings' ? 'default' : 'ghost'}
                   size="sm"
-                  onClick={() => setCurrentView('listings')}
+                  onClick={() => handleNavigate('listings')}
                   className={currentView === 'listings' ? 'bg-blue-600 text-white' : 'text-gray-700 hover:text-blue-600'}
                 >
                   <Package2 className="h-4 w-4 mr-2" />
@@ -436,35 +474,35 @@ function App() {
                         </Button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end" className="w-56">
-                        <DropdownMenuItem onClick={() => setCurrentView('dashboard')}>
+                        <DropdownMenuItem onClick={() => handleNavigate('dashboard')}>
                           <LayoutDashboard className="h-4 w-4 mr-2" />
                           Dashboard
                         </DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => setCurrentView('favorites')}>
+                        <DropdownMenuItem onClick={() => handleNavigate('favorites')}>
                           <Heart className="h-4 w-4 mr-2" />
                           Favorites
                         </DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => setCurrentView('saved-searches')}>
+                        <DropdownMenuItem onClick={() => handleNavigate('saved-searches')}>
                           <Search className="h-4 w-4 mr-2" />
                           Saved Searches
                         </DropdownMenuItem>
                         <DropdownMenuSeparator />
-                        <DropdownMenuItem onClick={() => setCurrentView('enhanced-messages')}>
+                        <DropdownMenuItem onClick={() => handleNavigate('enhanced-messages')}>
                           <MessageSquare className="h-4 w-4 mr-2" />
                           Messages
                         </DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => setCurrentView('transactions')}>
+                        <DropdownMenuItem onClick={() => handleNavigate('transactions')}>
                           <FileCheck className="h-4 w-4 mr-2" />
                           Transactions
                         </DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => setCurrentView('pickup')}>
+                        <DropdownMenuItem onClick={() => handleNavigate('pickup')}>
                           <Calendar className="h-4 w-4 mr-2" />
                           Pickup Schedule
                         </DropdownMenuItem>
                         {currentUser.role === 'seller' && (
                           <>
                             <DropdownMenuSeparator />
-                            <DropdownMenuItem onClick={() => setCurrentView('analytics')}>
+                            <DropdownMenuItem onClick={() => handleNavigate('analytics')}>
                               <BarChart3 className="h-4 w-4 mr-2" />
                               Analytics
                             </DropdownMenuItem>
@@ -473,7 +511,7 @@ function App() {
                         {currentUser.role === 'admin' && (
                           <>
                             <DropdownMenuSeparator />
-                            <DropdownMenuItem onClick={() => setCurrentView('admin')}>
+                            <DropdownMenuItem onClick={() => handleNavigate('admin')}>
                               <ShieldCheck className="h-4 w-4 mr-2" />
                               Admin Panel
                             </DropdownMenuItem>
@@ -497,13 +535,16 @@ function App() {
 
               {/* User Actions */}
               <div className="flex items-center gap-3">
+                {/* Deployment Status Indicator - Only shown in DEBUG_MODE */}
+                {DEBUG_MODE && SHOW_DEPLOYMENT_STATUS && <DeploymentStatus />}
+                
                 {currentUser ? (
                   <>
                     {/* Notifications */}
                     <Button
                       variant="ghost"
                       size="sm"
-                      onClick={() => setCurrentView('notifications')}
+                      onClick={() => handleNavigate('notifications')}
                       className="relative"
                     >
                       <Bell className="h-5 w-5 text-gray-600" />
@@ -523,7 +564,7 @@ function App() {
                       <Button
                         variant="ghost"
                         size="sm"
-                        onClick={() => setCurrentView('profile')}
+                        onClick={() => handleNavigate('profile')}
                         className="p-1"
                       >
                         {currentUser.avatar ? (
@@ -573,7 +614,7 @@ function App() {
                       variant={isActive ? 'default' : 'ghost'}
                       size="sm"
                       onClick={() => {
-                        setCurrentView(item.id as View);
+                        handleNavigate(item.id);
                         setIsMobileMenuOpen(false);
                       }}
                       className={`w-full justify-start ${isActive ? 'bg-blue-600 text-white' : 'text-gray-700'}`}

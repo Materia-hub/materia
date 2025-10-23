@@ -8,11 +8,16 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { mockListings, Listing } from './data/mockData';
 import { toast } from 'sonner@2.0.3';
 import { api } from '../utils/api';
+import ListingDebugger from './ListingDebugger';
+import BackendChecker from './BackendChecker';
+import DeploymentInstructions from './DeploymentInstructions';
+import { DEBUG_MODE, SHOW_BACKEND_CHECKER, SHOW_DEPLOYMENT_INSTRUCTIONS, SHOW_LISTING_DEBUGGER } from '../utils/config';
 
 interface DashboardProps {
   onNavigate: (page: string) => void;
   onViewListing: (listingId: string) => void;
   onDeleteListing?: () => void;
+  onRefreshListings?: () => void;
   listings: Listing[];
   currentUser?: {
     id: string;
@@ -21,12 +26,18 @@ interface DashboardProps {
   };
 }
 
-export default function Dashboard({ onNavigate, onViewListing, onDeleteListing, listings, currentUser }: DashboardProps) {
+export default function Dashboard({ onNavigate, onViewListing, onDeleteListing, onRefreshListings, listings, currentUser }: DashboardProps) {
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  
+  console.log('📊 Dashboard - Current User ID:', currentUser?.id);
+  console.log('📋 Dashboard - Total listings:', listings.length);
+  console.log('🔍 Dashboard - Listing sellerIds:', listings.map(l => ({ id: l.id, sellerId: l.sellerId, title: l.title })));
   
   const myListings = listings.filter(l => l.sellerId === currentUser?.id).slice(0, 3);
   const totalMyListings = listings.filter(l => l.sellerId === currentUser?.id).length;
-  const FREE_LISTING_LIMIT = 3;
+  
+  console.log('✅ Dashboard - My listings count:', totalMyListings);
+  const FREE_LISTING_LIMIT = 10;
   const isPremiumMember = currentUser?.membershipStatus === 'Premium';
   const remainingFreeListings = Math.max(0, FREE_LISTING_LIMIT - totalMyListings);
   const needsPayPerListing = !isPremiumMember && currentUser?.subscriptionTier !== 'annual' && totalMyListings >= FREE_LISTING_LIMIT;
@@ -88,6 +99,20 @@ export default function Dashboard({ onNavigate, onViewListing, onDeleteListing, 
 
   return (
     <div className="space-y-6">
+      {/* Debug Components - Only shown when DEBUG_MODE is enabled */}
+      {DEBUG_MODE && (
+        <>
+          {/* Deployment Instructions */}
+          {SHOW_DEPLOYMENT_INSTRUCTIONS && <DeploymentInstructions />}
+          
+          {/* Backend Diagnostics */}
+          {SHOW_BACKEND_CHECKER && <BackendChecker />}
+          
+          {/* Debug Info */}
+          {SHOW_LISTING_DEBUGGER && <ListingDebugger listings={listings} currentUserId={currentUser?.id} onRefresh={onRefreshListings} />}
+        </>
+      )}
+      
       {/* Welcome Banner */}
       <Card className="bg-gradient-to-r from-blue-600 to-blue-700 text-white p-6 border-0 shadow-lg">
         <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">

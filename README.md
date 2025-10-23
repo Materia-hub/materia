@@ -1,7 +1,7 @@
 
-  # Circular Materials Exchange Prototype
+  # Materia
 
-  This is a code bundle for Circular Materials Exchange Prototype. The original project is available at https://www.figma.com/design/3HeX7A9BvnfOKdliHmsRSF/Circular-Materials-Exchange-Prototype.
+  This is a code bundle for Materia. The original project is available at https://www.figma.com/design/3HeX7A9BvnfOKdliHmsRSF/Materia.
 
   ## Running the code
 
