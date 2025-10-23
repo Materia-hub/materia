@@ -357,6 +357,17 @@ function App() {
                   Browse Listings
                 </Button>
 
+                {/* Create Listing Button - Prominent */}
+                <Button
+                  variant="default"
+                  size="sm"
+                  onClick={handleCreateListing}
+                  className="bg-green-600 hover:bg-green-700 text-white"
+                >
+                  <Package2 className="h-4 w-4 mr-2" />
+                  Create Listing
+                </Button>
+
                 {/* Dropdown Menu for Other Items */}
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>

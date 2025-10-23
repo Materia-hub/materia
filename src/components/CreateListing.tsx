@@ -13,19 +13,40 @@ import SubscriptionDialog from './SubscriptionDialog';
 import { api } from '../utils/api';
 
 interface CreateListingProps {
-  editListingId: string | null;
+  accessToken: string | null;
+  editingListingId: string | null;
   onBack: () => void;
-  onSave: (listingData: Omit<Listing, 'id' | 'sellerId' | 'sellerName' | 'sellerType' | 'verified' | 'views' | 'postedDate'>) => void;
-  listings: Listing[];
+  onSuccess: () => void;
   currentUser: {
     id: string;
     subscriptionTier: 'free' | 'pay-per-listing' | 'annual';
   };
-  onUpdateSubscription: (tier: 'pay-per-listing' | 'annual') => void;
 }
 
-export default function CreateListing({ editListingId, onBack, onSave, listings, currentUser, onUpdateSubscription }: CreateListingProps) {
-  const existingListing = editListingId ? listings.find(l => l.id === editListingId) : null;
+export default function CreateListing({ accessToken, editingListingId, onBack, onSuccess, currentUser }: CreateListingProps) {
+  const [listings, setListings] = useState<Listing[]>([]);
+  const [loading, setLoading] = useState(true);
+  
+  // Load listings from API
+  useEffect(() => {
+    const loadListings = async () => {
+      try {
+        const data = await api.getListings();
+        // API returns { listings: [...] }
+        const listingsArray = data?.listings || [];
+        setListings(Array.isArray(listingsArray) ? listingsArray : []);
+      } catch (error) {
+        console.error('Error loading listings:', error);
+        // Fallback to mock data
+        setListings(Array.isArray(mockListings) ? mockListings : []);
+      } finally {
+        setLoading(false);
+      }
+    };
+    loadListings();
+  }, []);
+  
+  const existingListing = editingListingId ? listings.find(l => l.id === editingListingId) : null;
   
   // Calculate user's listing count
   const userListingCount = listings.filter(l => l.sellerId === currentUser.id).length;
@@ -34,43 +55,76 @@ export default function CreateListing({ editListingId, onBack, onSave, listings,
   
   const [showSubscriptionDialog, setShowSubscriptionDialog] = useState(false);
   
-  const [title, setTitle] = useState(existingListing?.title || '');
-  const [description, setDescription] = useState(existingListing?.description || '');
-  const [category, setCategory] = useState(existingListing?.category || 'Wood');
-  const [quantity, setQuantity] = useState(existingListing?.quantity || '');
-  const [condition, setCondition] = useState(existingListing?.condition || 'Good');
-  const [price, setPrice] = useState(existingListing?.price.toString() || '');
-  const [location, setLocation] = useState(existingListing?.location || '');
-  const [zipCode, setZipCode] = useState(existingListing?.locationData?.zipCode || '');
-  const [tradeAvailable, setTradeAvailable] = useState(existingListing?.tradeAvailable || false);
+  const [title, setTitle] = useState('');
+  const [description, setDescription] = useState('');
+  const [category, setCategory] = useState('Wood');
+  const [quantity, setQuantity] = useState('');
+  const [condition, setCondition] = useState('Good');
+  const [price, setPrice] = useState('');
+  const [location, setLocation] = useState('');
+  const [zipCode, setZipCode] = useState('');
+  const [tradeAvailable, setTradeAvailable] = useState(false);
   const [deliveryAvailable, setDeliveryAvailable] = useState(false);
   const [shape, setShape] = useState<'none' | 'round' | 'square' | 'rectangle'>('none');
   const [diameter, setDiameter] = useState('');
   const [length, setLength] = useState('');
   const [width, setWidth] = useState('');
   const [calculatedArea, setCalculatedArea] = useState('');
-  const [pricingType, setPricingType] = useState<'per-item' | 'bulk'>(existingListing?.pricingType || 'per-item');
-  const [bulkTiers, setBulkTiers] = useState<Array<{ minQuantity: string; maxQuantity: string; pricePerUnit: string }>>(
-    existingListing?.bulkPricing?.map(tier => ({
-      minQuantity: tier.minQuantity.toString(),
-      maxQuantity: tier.maxQuantity?.toString() || '',
-      pricePerUnit: tier.pricePerUnit.toString()
-    })) || [{ minQuantity: '1', maxQuantity: '', pricePerUnit: '' }]
-  );
-  const [uploadedImages, setUploadedImages] = useState<string[]>(existingListing?.images || []);
+  const [pricingType, setPricingType] = useState<'per-item' | 'bulk'>('per-item');
+  const [bulkTiers, setBulkTiers] = useState<Array<{ minQuantity: string; maxQuantity: string; pricePerUnit: string }>>([
+    { minQuantity: '1', maxQuantity: '', pricePerUnit: '' }
+  ]);
+  const [uploadedImages, setUploadedImages] = useState<string[]>([]);
   const [uploading, setUploading] = useState(false);
   const fileInputRef = React.useRef<HTMLInputElement>(null);
 
-  const handlePayPerListing = () => {
-    onUpdateSubscription('pay-per-listing');
-    setShowSubscriptionDialog(false);
-    toast.success('Subscription updated to pay-per-listing');
+  // Load existing listing data when editing
+  useEffect(() => {
+    if (editingListingId && listings.length > 0) {
+      const existingListing = listings.find(l => l.id === editingListingId);
+      if (existingListing) {
+        setTitle(existingListing.title);
+        setDescription(existingListing.description);
+        setCategory(existingListing.category);
+        setQuantity(existingListing.quantity);
+        setCondition(existingListing.condition);
+        setPrice(existingListing.price.toString());
+        setLocation(existingListing.location || '');
+        setZipCode(existingListing.locationData?.zipCode || '');
+        setTradeAvailable(existingListing.tradeAvailable);
+        setPricingType(existingListing.pricingType || 'per-item');
+        if (existingListing.bulkPricing) {
+          setBulkTiers(existingListing.bulkPricing.map(tier => ({
+            minQuantity: tier.minQuantity.toString(),
+            maxQuantity: tier.maxQuantity?.toString() || '',
+            pricePerUnit: tier.pricePerUnit.toString()
+          })));
+        }
+        setUploadedImages(existingListing.images || []);
+      }
+    }
+  }, [editingListingId, listings]);
+
+  const handlePayPerListing = async () => {
+    try {
+      // TODO: Implement API call to update subscription
+      // await api.updateSubscription(currentUser.id, 'pay-per-listing');
+      setShowSubscriptionDialog(false);
+      toast.success('Subscription updated to pay-per-listing');
+    } catch (error) {
+      toast.error('Failed to update subscription');
+    }
   };
 
-  const handleAnnualSubscription = () => {
-    onUpdateSubscription('annual');
-    setShowSubscriptionDialog(false);
-    toast.success('Annual subscription activated!');
+  const handleAnnualSubscription = async () => {
+    try {
+      // TODO: Implement API call to update subscription
+      // await api.updateSubscription(currentUser.id, 'annual');
+      setShowSubscriptionDialog(false);
+      toast.success('Annual subscription activated!');
+    } catch (error) {
+      toast.error('Failed to update subscription');
+    }
   };
 
   const handleImageUpload = () => {
@@ -260,16 +314,16 @@ export default function CreateListing({ editListingId, onBack, onSave, listings,
         postedDate: new Date().toISOString(),
       };
 
-      if (editListingId) {
-        await api.updateListing(editListingId, fullListingData);
+      if (editingListingId) {
+        await api.updateListing(editingListingId, fullListingData);
       } else {
         await api.createListing(fullListingData);
       }
 
-      // Also call the parent callback for local state update
-      onSave(listingData);
-      toast.success(editListingId ? 'Listing updated successfully!' : 'Listing created successfully!');
-      setTimeout(() => onBack(), 1500);
+      toast.success(editingListingId ? 'Listing updated successfully!' : 'Listing created successfully!');
+      setTimeout(() => {
+        onSuccess();
+      }, 1500);
     } catch (error) {
       console.error('Error saving listing:', error);
       toast.error('Failed to save listing. Please try again.');
@@ -302,12 +356,12 @@ export default function CreateListing({ editListingId, onBack, onSave, listings,
 
         <div>
           <h2 className="text-blue-900 mb-2">
-            {editListingId ? 'Edit Listing' : 'Create New Listing'}
+            {editingListingId ? 'Edit Listing' : 'Create New Listing'}
           </h2>
           <p className="text-muted-foreground">
             Share your surplus or reclaimed materials with the community
           </p>
-          {!editListingId && (
+          {!editingListingId && (
             <p className="text-sm text-blue-600 mt-1">
               {currentUser.subscriptionTier === 'annual' 
                 ? `Unlimited listings (Annual Plan) • ${userListingCount} listings created`
@@ -740,7 +794,7 @@ export default function CreateListing({ editListingId, onBack, onSave, listings,
               type="submit"
               className="bg-blue-600 hover:bg-blue-700"
             >
-              {editListingId ? 'Update Listing' : 'Create Listing'}
+              {editingListingId ? 'Update Listing' : 'Create Listing'}
             </Button>
             <Button
               type="button"

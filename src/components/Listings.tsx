@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Search, SlidersHorizontal, MapPin, CheckCircle, ArrowUpDown, Navigation } from 'lucide-react';
+import { Search, SlidersHorizontal, MapPin, CheckCircle, ArrowUpDown, Navigation, Plus } from 'lucide-react';
 import { Card } from './ui/card';
 import { Input } from './ui/input';
 import { Button } from './ui/button';
@@ -15,11 +15,13 @@ import { toast } from 'sonner@2.0.3';
 import { calculateDistance, getCoordinatesFromZip, parseLocation, getUserLocation } from '../utils/distance';
 
 interface ListingsProps {
-  onListingClick: (listingId: string) => void;
-  listings: Listing[];
+  accessToken: string | null;
+  currentUserId: string;
+  onViewListing: (listingId: string) => void;
+  onEditListing: (listingId: string) => void;
 }
 
-export default function Listings({ onListingClick, listings = [] }: ListingsProps) {
+export default function Listings({ accessToken, currentUserId, onViewListing, onEditListing }: ListingsProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('All Categories');
   const [selectedCondition, setSelectedCondition] = useState('All Conditions');
@@ -57,8 +59,8 @@ export default function Listings({ onListingClick, listings = [] }: ListingsProp
     }
   };
 
-  // Use backend listings if available, otherwise use prop listings or mock data
-  const allListings = backendListings.length > 0 ? backendListings : (listings.length > 0 ? listings : mockListings);
+  // Use backend listings if available, otherwise use mock data
+  const allListings = backendListings.length > 0 ? backendListings : mockListings;
 
   // Extract unique states for filtering
   const uniqueStates = ['All States', ...Array.from(new Set(
@@ -299,11 +301,20 @@ export default function Listings({ onListingClick, listings = [] }: ListingsProp
 
   return (
     <div className="space-y-6">
-      <div>
-        <h2 className="text-blue-900 mb-2">Browse Materials</h2>
-        <p className="text-muted-foreground">
-          Discover sustainable building materials from sellers across the platform
-        </p>
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+        <div>
+          <h2 className="text-blue-900 mb-2">Browse Materials</h2>
+          <p className="text-muted-foreground">
+            Discover sustainable building materials from sellers across the platform
+          </p>
+        </div>
+        <Button
+          onClick={() => onEditListing('')}
+          className="bg-green-600 hover:bg-green-700 text-white shrink-0"
+        >
+          <Plus className="h-5 w-5 mr-2" />
+          Create Listing
+        </Button>
       </div>
 
       {/* Search and Filters */}
@@ -396,7 +407,7 @@ export default function Listings({ onListingClick, listings = [] }: ListingsProp
           <Card
             key={listing.id}
             className="overflow-hidden hover:shadow-xl transition-all cursor-pointer group"
-            onClick={() => onListingClick(listing.id)}
+            onClick={() => onViewListing(listing.id)}
           >
             <div className="relative h-48 overflow-hidden">
               <img

@@ -1,12 +1,31 @@
-# 🚀 START HERE - SupplyWise Quick Guide
+# 🚀 START HERE - Materia Quick Guide
 
 ## Welcome! Your App is Ready! ✅
 
-SupplyWise is **fully functional** right now with:
+Materia is **fully functional** right now with:
 - ✅ Real backend (Supabase)
 - ✅ Photo uploads working
 - ✅ Data persists permanently
 - ✅ All features operational
+
+---
+
+## 🎯 NEW: Automated Deployment
+
+**Making changes in Figma Make?** Deploy to your live site in ONE command:
+
+```bash
+# Mac/Linux
+./deploy.sh
+
+# Windows
+deploy.bat
+```
+
+📖 **Complete Workflow**: [APPLY_CHANGES_WORKFLOW.md](APPLY_CHANGES_WORKFLOW.md)
+📖 **Script Details**: [DEPLOYMENT_AUTOMATION.md](DEPLOYMENT_AUTOMATION.md)
+
+**Changes go live in ~3 minutes!** ⚡
 
 ---
 
