@@ -24,8 +24,8 @@ interface DashboardProps {
 export default function Dashboard({ onNavigate, onViewListing, onDeleteListing, listings, currentUser }: DashboardProps) {
   const [deletingId, setDeletingId] = useState<string | null>(null);
   
-  const myListings = listings.filter(l => l.sellerId === '1').slice(0, 3);
-  const totalMyListings = listings.filter(l => l.sellerId === '1').length;
+  const myListings = listings.filter(l => l.sellerId === currentUser?.id).slice(0, 3);
+  const totalMyListings = listings.filter(l => l.sellerId === currentUser?.id).length;
   const FREE_LISTING_LIMIT = 3;
   const isPremiumMember = currentUser?.membershipStatus === 'Premium';
   const remainingFreeListings = Math.max(0, FREE_LISTING_LIMIT - totalMyListings);
@@ -57,14 +57,6 @@ export default function Dashboard({ onNavigate, onViewListing, onDeleteListing, 
 
   const handleDeleteListing = async (listingId: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    
-    // Check if this is a real user listing (has timestamp-based ID) vs mock data
-    const isRealListing = listingId.includes('-');
-    
-    if (!isRealListing) {
-      toast.error('Cannot delete demo listings. Please create your own listing to test this feature.');
-      return;
-    }
     
     setDeletingId(listingId);
     try {

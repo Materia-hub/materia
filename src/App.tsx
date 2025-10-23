@@ -22,6 +22,7 @@ import SellerAnalytics from './components/SellerAnalytics';
 import SavedSearches from './components/SavedSearches';
 import NotificationPreferences from './components/NotificationPreferences';
 import { mockListings, Listing } from './components/data/mockData';
+import { api } from './utils/api';
 
 // NOTE: SellerDirectory, ActivityFeed, and SellerProfile are excluded due to Figma webpack errors
 
@@ -71,12 +72,32 @@ function App() {
   const [editingListingId, setEditingListingId] = useState<string | null>(null);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isOnboarding, setIsOnboarding] = useState(false);
-  const [unreadCount, setUnreadCount] = useState(3);
+  const [unreadCount, setUnreadCount] = useState(0);
   const [listings, setListings] = useState<Listing[]>(mockListings);
+
+  // Set browser title
+  useEffect(() => {
+    document.title = 'Materia - Buy and Sell Material For Your Project';
+  }, []);
 
   useEffect(() => {
     initializeAuth();
+    loadListings(); // Load listings on mount
   }, []);
+
+  // Load listings from backend
+  const loadListings = async () => {
+    try {
+      const response = await api.getListings();
+      const backendListings = response.listings || [];
+      // Merge backend listings with mock data, preferring backend
+      const allListings = backendListings.length > 0 ? backendListings : mockListings;
+      setListings(allListings);
+    } catch (error) {
+      console.error('Error loading listings:', error);
+      // Keep using mock data on error
+    }
+  };
 
   const initializeAuth = async () => {
     const storedUser = localStorage.getItem('materia_user');
@@ -93,10 +114,10 @@ function App() {
         }
       } catch (e) {
         console.error('Error loading user:', e);
-        setIsOnboarding(true);
+        setIsOnboarding(false); // Allow public browsing
       }
     } else {
-      setIsOnboarding(true);
+      setIsOnboarding(false); // Allow public browsing without login
     }
   };
 
@@ -145,6 +166,7 @@ function App() {
   const handleBackToListings = () => {
     setSelectedListingId(null);
     setEditingListingId(null);
+    loadListings(); // Refresh listings when returning
     setCurrentView('listings');
   };
 
@@ -158,10 +180,11 @@ function App() {
 
   const handleDeleteListing = () => {
     console.log('Listing deleted, refreshing...');
-    setCurrentView('listings');
+    loadListings(); // Refresh listings after delete
+    setCurrentView('dashboard');
   };
 
-  if (isOnboarding || !currentUser) {
+  if (isOnboarding) {
     return (
       <ErrorBoundary>
         <Onboarding onComplete={handleOnboardingComplete} />
@@ -171,24 +194,32 @@ function App() {
   }
 
   const navigationItems = [
-    { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
     { id: 'listings', label: 'Browse Listings', icon: Package2 },
-    { id: 'favorites', label: 'Favorites', icon: Heart },
-    { id: 'saved-searches', label: 'Saved Searches', icon: Search },
-    { id: 'enhanced-messages', label: 'Messages', icon: MessageSquare },
-    { id: 'transactions', label: 'Transactions', icon: FileCheck },
-    { id: 'pickup', label: 'Pickup Schedule', icon: Calendar },
-    ...(currentUser.role === 'seller' ? [
+    ...(currentUser ? [
+      { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
+      { id: 'favorites', label: 'Favorites', icon: Heart },
+      { id: 'saved-searches', label: 'Saved Searches', icon: Search },
+      { id: 'enhanced-messages', label: 'Messages', icon: MessageSquare },
+      { id: 'transactions', label: 'Transactions', icon: FileCheck },
+      { id: 'pickup', label: 'Pickup Schedule', icon: Calendar },
+    ] : []),
+    ...(currentUser?.role === 'seller' ? [
       { id: 'analytics', label: 'Analytics', icon: BarChart3 }
     ] : []),
-    ...(currentUser.role === 'admin' ? [
+    ...(currentUser?.role === 'admin' ? [
       { id: 'admin', label: 'Admin Panel', icon: ShieldCheck }
     ] : []),
   ];
 
   const renderContent = () => {
+    // Public view - show listings to everyone
+    if (!currentUser && currentView !== 'listings' && currentView !== 'listing-detail') {
+      setCurrentView('listings');
+    }
+
     switch (currentView) {
       case 'dashboard':
+        if (!currentUser) return null;
         return (
           <Dashboard
             onNavigate={(page: string) => setCurrentView(page as View)}
@@ -206,7 +237,7 @@ function App() {
         return (
           <Listings
             accessToken={accessToken}
-            currentUserId={currentUser.id}
+            currentUserId={currentUser?.id || ''}
             onViewListing={handleViewListing}
             onEditListing={handleEditListing}
           />
@@ -220,10 +251,14 @@ function App() {
             onDelete={handleDeleteListing}
             listings={listings}
             accessToken={accessToken}
-            currentUserId={currentUser.id}
+            currentUserId={currentUser?.id || ''}
           />
         ) : null;
       case 'create-listing':
+        if (!currentUser) {
+          setIsOnboarding(true);
+          return null;
+        }
         return (
           <CreateListing
             accessToken={accessToken}
@@ -237,12 +272,16 @@ function App() {
           />
         );
       case 'enhanced-messages':
+        if (!currentUser) return null;
         return <EnhancedMessages accessToken={accessToken} currentUserId={currentUser.id} onViewListing={handleViewListing} />;
       case 'transactions':
+        if (!currentUser) return null;
         return <Transactions accessToken={accessToken} currentUserId={currentUser.id} />;
       case 'pickup':
+        if (!currentUser) return null;
         return <PickupScheduler accessToken={accessToken} currentUserId={currentUser.id} />;
       case 'admin':
+        if (!currentUser) return null;
         return currentUser.role === 'admin' ? (
           <AdminPanel accessToken={accessToken} />
         ) : (
@@ -253,6 +292,7 @@ function App() {
           </div>
         );
       case 'profile':
+        if (!currentUser) return null;
         return (
           <UserProfile
             user={{
@@ -273,6 +313,7 @@ function App() {
           />
         );
       case 'notifications':
+        if (!currentUser) return null;
         return (
           <NotificationsPage
             accessToken={accessToken}
@@ -282,6 +323,7 @@ function App() {
           />
         );
       case 'favorites':
+        if (!currentUser) return null;
         return (
           <Favorites
             accessToken={accessToken}
@@ -290,6 +332,7 @@ function App() {
           />
         );
       case 'analytics':
+        if (!currentUser) return null;
         return currentUser.role === 'seller' ? (
           <SellerAnalytics accessToken={accessToken} sellerId={currentUser.id} />
         ) : (
@@ -300,6 +343,7 @@ function App() {
           </div>
         );
       case 'saved-searches':
+        if (!currentUser) return null;
         return (
           <SavedSearches
             accessToken={accessToken}
@@ -308,6 +352,7 @@ function App() {
           />
         );
       case 'notification-preferences':
+        if (!currentUser) return null;
         return (
           <NotificationPreferences
             accessToken={accessToken}
@@ -316,6 +361,17 @@ function App() {
           />
         );
       default:
+        // Default to listings for public, dashboard for logged in users
+        if (!currentUser) {
+          return (
+            <Listings
+              accessToken={accessToken}
+              currentUserId={''}
+              onViewListing={handleViewListing}
+              onEditListing={handleEditListing}
+            />
+          );
+        }
         return (
           <Dashboard
             onNavigate={(page: string) => setCurrentView(page as View)}
@@ -357,121 +413,139 @@ function App() {
                   Browse Listings
                 </Button>
 
-                {/* Create Listing Button - Prominent */}
-                <Button
-                  variant="default"
-                  size="sm"
-                  onClick={handleCreateListing}
-                  className="bg-green-600 hover:bg-green-700 text-white"
-                >
-                  <Package2 className="h-4 w-4 mr-2" />
-                  Create Listing
-                </Button>
-
-                {/* Dropdown Menu for Other Items */}
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button variant="ghost" size="sm" className="text-gray-700 hover:text-blue-600">
-                      <Menu className="h-4 w-4 mr-2" />
-                      Menu
-                      <ChevronDown className="h-4 w-4 ml-1" />
+                {currentUser ? (
+                  <>
+                    {/* Create Listing Button - Prominent */}
+                    <Button
+                      variant="default"
+                      size="sm"
+                      onClick={handleCreateListing}
+                      className="bg-green-600 hover:bg-green-700 text-white"
+                    >
+                      <Package2 className="h-4 w-4 mr-2" />
+                      Create Listing
                     </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end" className="w-56">
-                    <DropdownMenuItem onClick={() => setCurrentView('dashboard')}>
-                      <LayoutDashboard className="h-4 w-4 mr-2" />
-                      Dashboard
-                    </DropdownMenuItem>
-                    <DropdownMenuItem onClick={() => setCurrentView('favorites')}>
-                      <Heart className="h-4 w-4 mr-2" />
-                      Favorites
-                    </DropdownMenuItem>
-                    <DropdownMenuItem onClick={() => setCurrentView('saved-searches')}>
-                      <Search className="h-4 w-4 mr-2" />
-                      Saved Searches
-                    </DropdownMenuItem>
-                    <DropdownMenuSeparator />
-                    <DropdownMenuItem onClick={() => setCurrentView('enhanced-messages')}>
-                      <MessageSquare className="h-4 w-4 mr-2" />
-                      Messages
-                    </DropdownMenuItem>
-                    <DropdownMenuItem onClick={() => setCurrentView('transactions')}>
-                      <FileCheck className="h-4 w-4 mr-2" />
-                      Transactions
-                    </DropdownMenuItem>
-                    <DropdownMenuItem onClick={() => setCurrentView('pickup')}>
-                      <Calendar className="h-4 w-4 mr-2" />
-                      Pickup Schedule
-                    </DropdownMenuItem>
-                    {currentUser.role === 'seller' && (
-                      <>
-                        <DropdownMenuSeparator />
-                        <DropdownMenuItem onClick={() => setCurrentView('analytics')}>
-                          <BarChart3 className="h-4 w-4 mr-2" />
-                          Analytics
+
+                    {/* Dropdown Menu for Other Items */}
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button variant="ghost" size="sm" className="text-gray-700 hover:text-blue-600">
+                          <Menu className="h-4 w-4 mr-2" />
+                          Menu
+                          <ChevronDown className="h-4 w-4 ml-1" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end" className="w-56">
+                        <DropdownMenuItem onClick={() => setCurrentView('dashboard')}>
+                          <LayoutDashboard className="h-4 w-4 mr-2" />
+                          Dashboard
                         </DropdownMenuItem>
-                      </>
-                    )}
-                    {currentUser.role === 'admin' && (
-                      <>
-                        <DropdownMenuSeparator />
-                        <DropdownMenuItem onClick={() => setCurrentView('admin')}>
-                          <ShieldCheck className="h-4 w-4 mr-2" />
-                          Admin Panel
+                        <DropdownMenuItem onClick={() => setCurrentView('favorites')}>
+                          <Heart className="h-4 w-4 mr-2" />
+                          Favorites
                         </DropdownMenuItem>
-                      </>
-                    )}
-                  </DropdownMenuContent>
-                </DropdownMenu>
+                        <DropdownMenuItem onClick={() => setCurrentView('saved-searches')}>
+                          <Search className="h-4 w-4 mr-2" />
+                          Saved Searches
+                        </DropdownMenuItem>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem onClick={() => setCurrentView('enhanced-messages')}>
+                          <MessageSquare className="h-4 w-4 mr-2" />
+                          Messages
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => setCurrentView('transactions')}>
+                          <FileCheck className="h-4 w-4 mr-2" />
+                          Transactions
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => setCurrentView('pickup')}>
+                          <Calendar className="h-4 w-4 mr-2" />
+                          Pickup Schedule
+                        </DropdownMenuItem>
+                        {currentUser.role === 'seller' && (
+                          <>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem onClick={() => setCurrentView('analytics')}>
+                              <BarChart3 className="h-4 w-4 mr-2" />
+                              Analytics
+                            </DropdownMenuItem>
+                          </>
+                        )}
+                        {currentUser.role === 'admin' && (
+                          <>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem onClick={() => setCurrentView('admin')}>
+                              <ShieldCheck className="h-4 w-4 mr-2" />
+                              Admin Panel
+                            </DropdownMenuItem>
+                          </>
+                        )}
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </>
+                ) : (
+                  /* Sign In Button for non-logged-in users */
+                  <Button
+                    variant="default"
+                    size="sm"
+                    onClick={() => setIsOnboarding(true)}
+                    className="bg-blue-600 hover:bg-blue-700 text-white"
+                  >
+                    Sign In / Sign Up
+                  </Button>
+                )}
               </nav>
 
               {/* User Actions */}
               <div className="flex items-center gap-3">
-                {/* Notifications */}
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => setCurrentView('notifications')}
-                  className="relative"
-                >
-                  <Bell className="h-5 w-5 text-gray-600" />
-                  {unreadCount > 0 && (
-                    <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs rounded-full h-5 w-5 flex items-center justify-center">
-                      {unreadCount}
-                    </span>
-                  )}
-                </Button>
+                {currentUser ? (
+                  <>
+                    {/* Notifications */}
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setCurrentView('notifications')}
+                      className="relative"
+                    >
+                      <Bell className="h-5 w-5 text-gray-600" />
+                      {unreadCount > 0 && (
+                        <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs rounded-full h-5 w-5 flex items-center justify-center">
+                          {unreadCount}
+                        </span>
+                      )}
+                    </Button>
 
-                {/* User Profile Button */}
-                <div className="flex items-center gap-2">
-                  <div className="hidden sm:block text-right">
-                    <p className="text-sm text-gray-800">{currentUser.name}</p>
-                    <p className="text-xs text-gray-500 capitalize hidden">{currentUser.role}</p>
-                  </div>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => setCurrentView('profile')}
-                    className="p-1"
-                  >
-                    {currentUser.avatar ? (
-                      <ImageWithFallback
-                        src={currentUser.avatar}
-                        alt={currentUser.name}
-                        className="h-8 w-8 rounded-full"
-                      />
-                    ) : (
-                      <div className="h-8 w-8 rounded-full bg-blue-600 flex items-center justify-center text-white">
-                        {currentUser.name.charAt(0).toUpperCase()}
+                    {/* User Profile Button */}
+                    <div className="flex items-center gap-2">
+                      <div className="hidden sm:block text-right">
+                        <p className="text-sm text-gray-800">{currentUser.name}</p>
+                        <p className="text-xs text-gray-500 capitalize hidden">{currentUser.role}</p>
                       </div>
-                    )}
-                  </Button>
-                </div>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setCurrentView('profile')}
+                        className="p-1"
+                      >
+                        {currentUser.avatar ? (
+                          <ImageWithFallback
+                            src={currentUser.avatar}
+                            alt={currentUser.name}
+                            className="h-8 w-8 rounded-full"
+                          />
+                        ) : (
+                          <div className="h-8 w-8 rounded-full bg-blue-600 flex items-center justify-center text-white">
+                            {currentUser.name.charAt(0).toUpperCase()}
+                          </div>
+                        )}
+                      </Button>
+                    </div>
 
-                {/* Logout */}
-                <Button variant="ghost" size="sm" onClick={handleLogout} className="text-gray-600 hover:text-red-600">
-                  <LogOut className="h-5 w-5" />
-                </Button>
+                    {/* Logout */}
+                    <Button variant="ghost" size="sm" onClick={handleLogout} className="text-gray-600 hover:text-red-600">
+                      <LogOut className="h-5 w-5" />
+                    </Button>
+                  </>
+                ) : null}
 
                 {/* Mobile Menu Toggle */}
                 <Button
