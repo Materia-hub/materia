@@ -1,9 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { Package2, MessageSquare, FileCheck, Calendar, LayoutDashboard, ShieldCheck, LogOut, Menu, X, Heart, BarChart3, Search, Bell, ChevronDown } from 'lucide-react';
+import { Package2, MessageSquare, FileCheck, Calendar, LayoutDashboard, ShieldCheck, LogOut, Menu, X, Leaf, Heart, BarChart3, Search, Bell } from 'lucide-react';
 import { Button } from './components/ui/button';
 import { Toaster } from './components/ui/sonner';
 import { ImageWithFallback } from './components/figma/ImageWithFallback';
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuSeparator } from './components/ui/dropdown-menu';
 import { supabase } from './utils/supabase/client';
 import ErrorBoundary from './components/ErrorBoundary';
 import Dashboard from './components/Dashboard';
@@ -64,7 +63,7 @@ interface User {
 }
 
 function App() {
-  const [currentView, setCurrentView] = useState<View>('listings');
+  const [currentView, setCurrentView] = useState<View>('dashboard');
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [accessToken, setAccessToken] = useState<string | null>(null);
   const [selectedListingId, setSelectedListingId] = useState<string | null>(null);
@@ -79,7 +78,7 @@ function App() {
   }, []);
 
   const initializeAuth = async () => {
-    const storedUser = localStorage.getItem('materia_user');
+    const storedUser = localStorage.getItem('supplywise_user');
     if (storedUser) {
       try {
         const user = JSON.parse(storedUser);
@@ -108,7 +107,7 @@ function App() {
       membershipStatus: userData.membershipStatus || 'Basic',
     };
     setCurrentUser(userWithDefaults);
-    localStorage.setItem('materia_user', JSON.stringify(userWithDefaults));
+    localStorage.setItem('supplywise_user', JSON.stringify(userWithDefaults));
     setIsOnboarding(false);
     
     // Get session token
@@ -122,9 +121,9 @@ function App() {
     await supabase.auth.signOut();
     setCurrentUser(null);
     setAccessToken(null);
-    localStorage.removeItem('materia_user');
+    localStorage.removeItem('supplywise_user');
     setIsOnboarding(true);
-    setCurrentView('listings');
+    setCurrentView('dashboard');
   };
 
   const handleViewListing = (listingId: string) => {
@@ -152,7 +151,7 @@ function App() {
     if (currentUser) {
       const updated = { ...currentUser, ...updatedUser };
       setCurrentUser(updated);
-      localStorage.setItem('materia_user', JSON.stringify(updated));
+      localStorage.setItem('supplywise_user', JSON.stringify(updated));
     }
   };
 
@@ -255,21 +254,9 @@ function App() {
       case 'profile':
         return (
           <UserProfile
-            user={{
-              id: currentUser.id,
-              name: currentUser.name,
-              email: currentUser.email,
-              role: currentUser.role,
-              businessType: currentUser.businessType || '',
-              location: currentUser.location || '',
-              membershipStatus: currentUser.membershipStatus || 'Basic',
-              subscriptionTier: currentUser.subscriptionTier || 'free',
-              joinDate: currentUser.joinDate || currentUser.memberSince || new Date().toISOString(),
-              avatar: currentUser.avatar || currentUser.name.charAt(0).toUpperCase(),
-              isAdmin: currentUser.isAdmin || currentUser.role === 'admin',
-            }}
-            onUpdateUser={handleUpdateProfile}
-            onNavigate={(page: string) => setCurrentView(page as View)}
+            accessToken={accessToken}
+            currentUserId={currentUser.id}
+            onUpdate={handleUpdateProfile}
           />
         );
       case 'notifications':
@@ -340,78 +327,31 @@ function App() {
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="flex justify-between items-center h-16">
               {/* Logo */}
-              <div className="flex items-center gap-3 cursor-pointer" onClick={() => setCurrentView('listings')}>
-                <h1 className="text-xl materia-brand">Materia</h1>
+              <div className="flex items-center gap-3 cursor-pointer" onClick={() => setCurrentView('dashboard')}>
+                <div className="bg-gradient-to-br from-blue-600 to-blue-700 p-2 rounded-lg shadow-md">
+                  <Leaf className="h-6 w-6 text-white" />
+                </div>
+                <h1 className="text-xl text-blue-600">SupplyWise</h1>
               </div>
 
               {/* Desktop Navigation */}
-              <nav className="hidden md:flex items-center gap-2">
-                {/* Browse Listings - Always Visible */}
-                <Button
-                  variant={currentView === 'listings' ? 'default' : 'ghost'}
-                  size="sm"
-                  onClick={() => setCurrentView('listings')}
-                  className={currentView === 'listings' ? 'bg-blue-600 text-white' : 'text-gray-700 hover:text-blue-600'}
-                >
-                  <Package2 className="h-4 w-4 mr-2" />
-                  Browse Listings
-                </Button>
-
-                {/* Dropdown Menu for Other Items */}
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button variant="ghost" size="sm" className="text-gray-700 hover:text-blue-600">
-                      <Menu className="h-4 w-4 mr-2" />
-                      Menu
-                      <ChevronDown className="h-4 w-4 ml-1" />
+              <nav className="hidden md:flex items-center gap-1">
+                {navigationItems.map((item) => {
+                  const Icon = item.icon;
+                  const isActive = currentView === item.id;
+                  return (
+                    <Button
+                      key={item.id}
+                      variant={isActive ? 'default' : 'ghost'}
+                      size="sm"
+                      onClick={() => setCurrentView(item.id as View)}
+                      className={isActive ? 'bg-blue-600 text-white' : 'text-gray-700 hover:text-blue-600'}
+                    >
+                      <Icon className="h-4 w-4 mr-2" />
+                      {item.label}
                     </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end" className="w-56">
-                    <DropdownMenuItem onClick={() => setCurrentView('dashboard')}>
-                      <LayoutDashboard className="h-4 w-4 mr-2" />
-                      Dashboard
-                    </DropdownMenuItem>
-                    <DropdownMenuItem onClick={() => setCurrentView('favorites')}>
-                      <Heart className="h-4 w-4 mr-2" />
-                      Favorites
-                    </DropdownMenuItem>
-                    <DropdownMenuItem onClick={() => setCurrentView('saved-searches')}>
-                      <Search className="h-4 w-4 mr-2" />
-                      Saved Searches
-                    </DropdownMenuItem>
-                    <DropdownMenuSeparator />
-                    <DropdownMenuItem onClick={() => setCurrentView('enhanced-messages')}>
-                      <MessageSquare className="h-4 w-4 mr-2" />
-                      Messages
-                    </DropdownMenuItem>
-                    <DropdownMenuItem onClick={() => setCurrentView('transactions')}>
-                      <FileCheck className="h-4 w-4 mr-2" />
-                      Transactions
-                    </DropdownMenuItem>
-                    <DropdownMenuItem onClick={() => setCurrentView('pickup')}>
-                      <Calendar className="h-4 w-4 mr-2" />
-                      Pickup Schedule
-                    </DropdownMenuItem>
-                    {currentUser.role === 'seller' && (
-                      <>
-                        <DropdownMenuSeparator />
-                        <DropdownMenuItem onClick={() => setCurrentView('analytics')}>
-                          <BarChart3 className="h-4 w-4 mr-2" />
-                          Analytics
-                        </DropdownMenuItem>
-                      </>
-                    )}
-                    {currentUser.role === 'admin' && (
-                      <>
-                        <DropdownMenuSeparator />
-                        <DropdownMenuItem onClick={() => setCurrentView('admin')}>
-                          <ShieldCheck className="h-4 w-4 mr-2" />
-                          Admin Panel
-                        </DropdownMenuItem>
-                      </>
-                    )}
-                  </DropdownMenuContent>
-                </DropdownMenu>
+                  );
+                })}
               </nav>
 
               {/* User Actions */}
@@ -435,7 +375,7 @@ function App() {
                 <div className="flex items-center gap-2">
                   <div className="hidden sm:block text-right">
                     <p className="text-sm text-gray-800">{currentUser.name}</p>
-                    <p className="text-xs text-gray-500 capitalize hidden">{currentUser.role}</p>
+                    <p className="text-xs text-gray-500 capitalize">{currentUser.role}</p>
                   </div>
                   <Button
                     variant="ghost"
@@ -513,7 +453,8 @@ function App() {
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
             <div className="flex flex-col sm:flex-row justify-between items-center gap-4">
               <div className="flex items-center gap-2 text-gray-600">
-                <span className="text-sm">© 2025 Materia. All rights reserved.</span>
+                <Leaf className="h-5 w-5 text-blue-600" />
+                <span className="text-sm">© 2025 SupplyWise. All rights reserved.</span>
               </div>
               <div className="flex gap-4 text-sm text-gray-600">
                 <a href="#" className="hover:text-blue-600">Help Center</a>
