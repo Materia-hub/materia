@@ -19,7 +19,7 @@ interface ListingDetailProps {
   listingId: string;
   onBack: () => void;
   onEdit: (listingId: string) => void;
-  onDelete?: () => void;
+  onDelete?: (listingId?: string) => void;
   listings: Listing[];
   accessToken: string | null;
   currentUserId?: string;
@@ -40,13 +40,17 @@ export default function ListingDetail({ listingId, onBack, onEdit, onDelete, lis
   // Check if listing is favorited
   useEffect(() => {
     const checkFavorite = async () => {
-      if (!accessToken) return;
+      if (!accessToken || accessToken === '') return;
       
       try {
         const response = await api.getFavorites(accessToken);
         const favorites = response.favorites || [];
-        setIsFavorited(favorites.some((f: any) => f.listingId === listingId));
+        setIsFavorited(favorites.some((f: any) => f && f.listingId === listingId));
       } catch (error) {
+        // Silently fail if user is not authenticated - this is expected for public browsing
+        if (error instanceof Error && error.message.includes('Unauthorized')) {
+          return;
+        }
         console.error('Error checking favorite status:', error);
       }
     };
@@ -55,7 +59,7 @@ export default function ListingDetail({ listingId, onBack, onEdit, onDelete, lis
   }, [accessToken, listingId]);
 
   const handleToggleFavorite = async () => {
-    if (!accessToken) {
+    if (!accessToken || accessToken === '') {
       toast.error('Please sign in to save favorites');
       return;
     }
@@ -73,8 +77,18 @@ export default function ListingDetail({ listingId, onBack, onEdit, onDelete, lis
         toast.success('Added to favorites');
       }
     } catch (error) {
-      console.error('Error toggling favorite:', error);
-      toast.error('Failed to update favorites');
+      // Provide more specific error messages
+      if (error instanceof Error) {
+        if (error.message.includes('Unauthorized')) {
+          toast.error('Please sign in to save favorites');
+        } else {
+          console.error('Error toggling favorite:', error);
+          toast.error(error.message || 'Failed to update favorites');
+        }
+      } else {
+        console.error('Error toggling favorite:', error);
+        toast.error('Failed to update favorites');
+      }
     } finally {
       setFavoriteLoading(false);
     }
@@ -128,9 +142,12 @@ export default function ListingDetail({ listingId, onBack, onEdit, onDelete, lis
     try {
       await api.deleteListing(listing.id);
       toast.success('Listing deleted successfully');
+      
+      // Refresh the listings data before going back - pass listing ID for optimistic update
       if (onDelete) {
-        onDelete();
+        await onDelete(listing.id);
       }
+      
       onBack();
     } catch (error) {
       console.error('Error deleting listing:', error);

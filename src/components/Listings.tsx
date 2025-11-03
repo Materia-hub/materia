@@ -13,7 +13,6 @@ import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTr
 import { api } from '../utils/api';
 import { toast } from 'sonner@2.0.3';
 import { calculateDistance, getCoordinatesFromZip, parseLocation, getUserLocation } from '../utils/distance';
-import ListingDebugger from './ListingDebugger';
 
 interface ListingsProps {
   accessToken: string | null;
@@ -41,9 +40,6 @@ export default function Listings({ accessToken, currentUserId, onViewListing, on
 
   // Use listings from props (managed by App.tsx)
   const allListings = listings;
-  
-  console.log('📋 Listings Component - Received listings:', allListings.length);
-  console.log('📋 Listings Component - Listings:', allListings.map(l => ({ id: l.id, title: l.title, sellerId: l.sellerId })));
 
   // Extract unique states for filtering
   const uniqueStates = ['All States', ...Array.from(new Set(
@@ -288,9 +284,6 @@ export default function Listings({ accessToken, currentUserId, onViewListing, on
 
   return (
     <div className="space-y-6">
-      {/* Debug Info */}
-      <ListingDebugger listings={listings} currentUserId={currentUserId} />
-      
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
           <h2 className="text-blue-900 mb-2">Browse Materials</h2>

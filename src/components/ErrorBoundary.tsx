@@ -25,15 +25,20 @@ class ErrorBoundary extends Component<Props, State> {
   }
 
   public componentDidCatch(error: Error, errorInfo: ErrorInfo) {
-    console.error('%c❌ REACT ERROR CAUGHT BY ERROR BOUNDARY', 'color: #dc2626; font-weight: bold; font-size: 14px;');
-    console.error('Error:', error);
-    console.error('Component Stack:', errorInfo.componentStack);
-    console.log('%c⚠️ This is a REAL error in your React code (not a Figma error)', 'color: #ea580c; font-weight: bold;');
+    // Only log if this is NOT a Figma webpack error
+    const isFigmaError = error.stack?.includes('figma.com/webpack') || 
+                         error.stack?.includes('code_components_preview_iframe');
     
-    this.setState({
-      error,
-      errorInfo,
-    });
+    if (!isFigmaError) {
+      console.error('%c❌ REAL APPLICATION ERROR', 'color: #dc2626; font-weight: bold; font-size: 14px;');
+      console.error('Error:', error);
+      console.error('Component Stack:', errorInfo.componentStack);
+      
+      this.setState({
+        error,
+        errorInfo,
+      });
+    }
   }
 
   private handleReset = () => {

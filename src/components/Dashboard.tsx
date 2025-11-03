@@ -1,22 +1,20 @@
-import React, { useState } from 'react';
-import { Package, TrendingUp, MessageSquare, Calendar, ArrowRight, CheckCircle, Eye, AlertCircle, Zap, Trash2 } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Package, TrendingUp, MessageSquare, Calendar, ArrowRight, CheckCircle, Eye, AlertCircle, Zap, Trash2, Edit } from 'lucide-react';
 import { Card } from './ui/card';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
 import { Alert, AlertDescription, AlertTitle } from './ui/alert';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from './ui/alert-dialog';
+import { ScrollArea } from './ui/scroll-area';
 import { mockListings, Listing } from './data/mockData';
 import { toast } from 'sonner@2.0.3';
 import { api } from '../utils/api';
-import ListingDebugger from './ListingDebugger';
-import BackendChecker from './BackendChecker';
-import DeploymentInstructions from './DeploymentInstructions';
-import { DEBUG_MODE, SHOW_BACKEND_CHECKER, SHOW_DEPLOYMENT_INSTRUCTIONS, SHOW_LISTING_DEBUGGER } from '../utils/config';
 
 interface DashboardProps {
   onNavigate: (page: string) => void;
   onViewListing: (listingId: string) => void;
-  onDeleteListing?: () => void;
+  onEditListing: (listingId: string) => void;
+  onDeleteListing?: (listingId?: string) => void;
   onRefreshListings?: () => void;
   listings: Listing[];
   currentUser?: {
@@ -24,37 +22,93 @@ interface DashboardProps {
     subscriptionTier: 'free' | 'pay-per-listing' | 'annual';
     membershipStatus: string;
   };
+  accessToken?: string;
 }
 
-export default function Dashboard({ onNavigate, onViewListing, onDeleteListing, onRefreshListings, listings, currentUser }: DashboardProps) {
+interface Conversation {
+  id: string;
+  participants: string[];
+  listingId: string;
+  lastMessage: string;
+  lastMessageAt: string;
+  lastMessageBy: string;
+}
+
+export default function Dashboard({ onNavigate, onViewListing, onEditListing, onDeleteListing, onRefreshListings, listings, currentUser, accessToken }: DashboardProps) {
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [recentActivity, setRecentActivity] = useState<Array<{
+    id: string;
+    type: 'message' | 'offer' | 'pickup';
+    text: string;
+    time: string;
+  }>>([]);
+  const [messageCount, setMessageCount] = useState(0);
   
-  console.log('📊 Dashboard - Current User ID:', currentUser?.id);
-  console.log('📋 Dashboard - Total listings:', listings.length);
-  console.log('🔍 Dashboard - Listing sellerIds:', listings.map(l => ({ id: l.id, sellerId: l.sellerId, title: l.title })));
+  const myListings = listings.filter(l => l.sellerId === currentUser?.id);
+  const totalMyListings = myListings.length;
   
-  const myListings = listings.filter(l => l.sellerId === currentUser?.id).slice(0, 3);
-  const totalMyListings = listings.filter(l => l.sellerId === currentUser?.id).length;
-  
-  console.log('✅ Dashboard - My listings count:', totalMyListings);
   const FREE_LISTING_LIMIT = 10;
   const isPremiumMember = currentUser?.membershipStatus === 'Premium';
   const remainingFreeListings = Math.max(0, FREE_LISTING_LIMIT - totalMyListings);
   const needsPayPerListing = !isPremiumMember && currentUser?.subscriptionTier !== 'annual' && totalMyListings >= FREE_LISTING_LIMIT;
   
-  // Debug logging
-  console.log('Dashboard Debug:', {
-    membershipStatus: currentUser?.membershipStatus,
-    isPremiumMember,
-    subscriptionTier: currentUser?.subscriptionTier,
-    shouldShowAlert: !isPremiumMember && currentUser?.subscriptionTier !== 'annual'
-  });
-  
-  const recentActivity = [
-    { id: '1', type: 'message', text: 'New message from Mike Chen about Oak Flooring', time: '2 hours ago' },
-    { id: '2', type: 'offer', text: 'Offer received for Steel I-Beams', time: '5 hours ago' },
-    { id: '3', type: 'pickup', text: 'Pickup scheduled for tomorrow at 2 PM', time: '1 day ago' },
-  ];
+  // Fetch real conversations and messages
+  useEffect(() => {
+    const fetchRecentMessages = async () => {
+      if (!accessToken || !currentUser?.id) {
+        return;
+      }
+
+      try {
+        const { conversations } = await api.getConversations(accessToken);
+
+        // Filter conversations to only show those with valid listings
+        const validListingIds = new Set(listings.map(l => l.id));
+        const validConversations = conversations.filter((conv: Conversation) => 
+          conv.listingId && validListingIds.has(conv.listingId)
+        );
+        
+        // Count total messages
+        setMessageCount(validConversations.length);
+
+        // Convert recent conversations to activity items
+        const activities = validConversations.slice(0, 3).map((conv: Conversation) => {
+          const listing = listings.find(l => l.id === conv.listingId);
+          const isFromMe = conv.lastMessageBy === currentUser.id;
+          const otherUserId = conv.participants.find(p => p !== currentUser.id);
+          
+          // Calculate time ago
+          const messageDate = new Date(conv.lastMessageAt);
+          const now = new Date();
+          const diffMs = now.getTime() - messageDate.getTime();
+          const diffMins = Math.floor(diffMs / 60000);
+          const diffHours = Math.floor(diffMs / 3600000);
+          const diffDays = Math.floor(diffMs / 86400000);
+          
+          let timeAgo = '';
+          if (diffMins < 1) timeAgo = 'Just now';
+          else if (diffMins < 60) timeAgo = `${diffMins} min${diffMins !== 1 ? 's' : ''} ago`;
+          else if (diffHours < 24) timeAgo = `${diffHours} hour${diffHours !== 1 ? 's' : ''} ago`;
+          else timeAgo = `${diffDays} day${diffDays !== 1 ? 's' : ''} ago`;
+
+          return {
+            id: conv.id,
+            type: 'message' as const,
+            text: `${isFromMe ? 'You sent a' : 'New'} message about ${listing?.title || 'a listing'}`,
+            time: timeAgo,
+          };
+        });
+
+        setRecentActivity(activities);
+      } catch (error) {
+        console.error('❌ Error fetching conversations:', error);
+        // Don't show error toast, just silently fail with empty activity
+        setRecentActivity([]);
+      }
+    };
+
+    fetchRecentMessages();
+  }, [accessToken, currentUser?.id, listings]);
 
   const getListingLabel = () => {
     if (currentUser?.subscriptionTier === 'annual') {
@@ -73,8 +127,15 @@ export default function Dashboard({ onNavigate, onViewListing, onDeleteListing, 
     try {
       await api.deleteListing(listingId);
       toast.success('Listing deleted successfully');
+      
+      // Refresh the listings data - pass the listing ID for optimistic update
       if (onDeleteListing) {
-        onDeleteListing();
+        await onDeleteListing(listingId);
+      }
+      
+      // Also refresh current data
+      if (onRefreshListings) {
+        await onRefreshListings();
       }
     } catch (error) {
       console.error('Error deleting listing:', error);
@@ -93,32 +154,24 @@ export default function Dashboard({ onNavigate, onViewListing, onDeleteListing, 
   const stats = [
     { label: 'Active Listings', value: getListingLabel(), icon: Package, color: 'text-blue-600' },
     { label: 'Total Views', value: '147', icon: Eye, color: 'text-sky-600' },
-    { label: 'Messages', value: '12', icon: MessageSquare, color: 'text-purple-600' },
+    { label: 'Messages', value: messageCount.toString(), icon: MessageSquare, color: 'text-purple-600' },
     { label: 'Scheduled Pickups', value: '2', icon: Calendar, color: 'text-orange-600' },
   ];
 
   return (
     <div className="space-y-6">
-      {/* Debug Components - Only shown when DEBUG_MODE is enabled */}
-      {DEBUG_MODE && (
-        <>
-          {/* Deployment Instructions */}
-          {SHOW_DEPLOYMENT_INSTRUCTIONS && <DeploymentInstructions />}
-          
-          {/* Backend Diagnostics */}
-          {SHOW_BACKEND_CHECKER && <BackendChecker />}
-          
-          {/* Debug Info */}
-          {SHOW_LISTING_DEBUGGER && <ListingDebugger listings={listings} currentUserId={currentUser?.id} onRefresh={onRefreshListings} />}
-        </>
-      )}
-      
+
       {/* Welcome Banner */}
       <Card className="bg-gradient-to-r from-blue-600 to-blue-700 text-white p-6 border-0 shadow-lg">
         <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
           <div>
             <h2 className="text-white mb-2">Welcome back, Dillon!</h2>
-            <p className="text-blue-100">You have 3 new messages and 1 pending offer</p>
+            <p className="text-blue-100">
+              {messageCount > 0 
+                ? `You have ${messageCount} conversation${messageCount !== 1 ? 's' : ''}`
+                : 'No new messages'
+              }
+            </p>
           </div>
           <Button
             onClick={() => onNavigate('create-listing')}
@@ -184,89 +237,125 @@ export default function Dashboard({ onNavigate, onViewListing, onDeleteListing, 
               View All
             </Button>
           </div>
-          <div className="space-y-4">
-            {myListings.map((listing) => (
-              <div
-                key={listing.id}
-                className="flex gap-4 p-3 hover:bg-blue-50 rounded-lg transition-colors cursor-pointer group"
-                onClick={() => onViewListing(listing.id)}
-              >
-                <img
-                  src={listing.images[0]}
-                  alt={listing.title}
-                  className="w-20 h-20 object-cover rounded-lg"
-                />
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-start justify-between gap-2">
-                    <h4 className="text-gray-900 truncate">{listing.title}</h4>
-                    <div className="flex items-center gap-2 flex-shrink-0">
-                      {listing.verified && (
-                        <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200">
-                          <CheckCircle className="w-3 h-3 mr-1" />
-                          Verified
-                        </Badge>
-                      )}
-                      {listing.id.includes('-') && (
-                        <AlertDialog>
-                          <AlertDialogTrigger asChild>
+          <ScrollArea className="h-[500px] pr-4">
+            <div className="space-y-4">
+              {myListings.map((listing) => (
+                <div
+                  key={listing.id}
+                  className="flex gap-4 p-3 hover:bg-blue-50 rounded-lg transition-colors cursor-pointer group"
+                  onClick={() => onViewListing(listing.id)}
+                >
+                  <img
+                    src={listing.images[0]}
+                    alt={listing.title}
+                    className="w-20 h-20 object-cover rounded-lg"
+                  />
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-start justify-between gap-2">
+                      <h4 className="text-gray-900 truncate">{listing.title}</h4>
+                      <div className="flex items-center gap-2 flex-shrink-0">
+                        {listing.verified && (
+                          <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200">
+                            <CheckCircle className="w-3 h-3 mr-1" />
+                            Verified
+                          </Badge>
+                        )}
+                        {listing.id.includes('-') && (
+                          <>
                             <Button 
                               variant="ghost" 
                               size="icon"
-                              className="h-8 w-8 opacity-0 group-hover:opacity-100 transition-opacity text-red-600 hover:text-red-700 hover:bg-red-50"
-                              onClick={(e) => e.stopPropagation()}
+                              className="h-8 w-8 opacity-0 group-hover:opacity-100 transition-opacity text-blue-600 hover:text-blue-700 hover:bg-blue-50"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                onEditListing(listing.id);
+                              }}
                             >
-                              <Trash2 className="w-4 h-4" />
+                              <Edit className="w-4 h-4" />
                             </Button>
-                          </AlertDialogTrigger>
-                          <AlertDialogContent onClick={(e) => e.stopPropagation()}>
-                            <AlertDialogHeader>
-                              <AlertDialogTitle>Delete Listing</AlertDialogTitle>
-                              <AlertDialogDescription>
-                                Are you sure you want to delete "{listing.title}"? This action cannot be undone.
-                              </AlertDialogDescription>
-                            </AlertDialogHeader>
-                            <AlertDialogFooter>
-                              <AlertDialogCancel onClick={(e) => e.stopPropagation()}>Cancel</AlertDialogCancel>
-                              <AlertDialogAction
-                                onClick={(e) => handleDeleteListing(listing.id, e)}
-                                disabled={deletingId === listing.id}
-                                className="bg-red-600 hover:bg-red-700"
-                              >
-                                {deletingId === listing.id ? 'Deleting...' : 'Delete'}
-                              </AlertDialogAction>
-                            </AlertDialogFooter>
-                          </AlertDialogContent>
-                        </AlertDialog>
-                      )}
+                            <AlertDialog>
+                              <AlertDialogTrigger asChild>
+                                <Button 
+                                  variant="ghost" 
+                                  size="icon"
+                                  className="h-8 w-8 opacity-0 group-hover:opacity-100 transition-opacity text-red-600 hover:text-red-700 hover:bg-red-50"
+                                  onClick={(e) => e.stopPropagation()}
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </Button>
+                              </AlertDialogTrigger>
+                              <AlertDialogContent onClick={(e) => e.stopPropagation()}>
+                                <AlertDialogHeader>
+                                  <AlertDialogTitle>Delete Listing</AlertDialogTitle>
+                                  <AlertDialogDescription>
+                                    Are you sure you want to delete "{listing.title}"? This action cannot be undone.
+                                  </AlertDialogDescription>
+                                </AlertDialogHeader>
+                                <AlertDialogFooter>
+                                  <AlertDialogCancel onClick={(e) => e.stopPropagation()}>Cancel</AlertDialogCancel>
+                                  <AlertDialogAction
+                                    onClick={(e) => handleDeleteListing(listing.id, e)}
+                                    disabled={deletingId === listing.id}
+                                    className="bg-red-600 hover:bg-red-700"
+                                  >
+                                    {deletingId === listing.id ? 'Deleting...' : 'Delete'}
+                                  </AlertDialogAction>
+                                </AlertDialogFooter>
+                              </AlertDialogContent>
+                            </AlertDialog>
+                          </>
+                        )}
+                      </div>
                     </div>
+                    <p className="text-muted-foreground">${listing.price}</p>
+                    <p className="text-xs text-muted-foreground">{listing.views} views</p>
                   </div>
-                  <p className="text-muted-foreground">${listing.price}</p>
-                  <p className="text-xs text-muted-foreground">{listing.views} views</p>
                 </div>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+          </ScrollArea>
         </Card>
 
         {/* Recent Activity */}
         <Card className="p-6">
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-blue-900">Recent Activity</h3>
+            {recentActivity.length > 0 && (
+              <Button
+                variant="ghost"
+                onClick={() => onNavigate('messages')}
+                className="text-blue-600 hover:text-blue-700"
+              >
+                View All
+              </Button>
+            )}
           </div>
           <div className="space-y-4">
-            {recentActivity.map((activity) => (
-              <div key={activity.id} className="flex gap-3 p-3 hover:bg-blue-50 rounded-lg transition-colors">
-                <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center flex-shrink-0">
-                  {activity.type === 'message' && <MessageSquare className="w-5 h-5 text-blue-600" />}
-                  {activity.type === 'offer' && <TrendingUp className="w-5 h-5 text-blue-600" />}
-                  {activity.type === 'pickup' && <Calendar className="w-5 h-5 text-blue-600" />}
+            {recentActivity.length > 0 ? (
+              recentActivity.map((activity) => (
+                <div 
+                  key={activity.id} 
+                  className="flex gap-3 p-3 hover:bg-blue-50 rounded-lg transition-colors cursor-pointer"
+                  onClick={() => onNavigate('messages')}
+                >
+                  <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center flex-shrink-0">
+                    {activity.type === 'message' && <MessageSquare className="w-5 h-5 text-blue-600" />}
+                    {activity.type === 'offer' && <TrendingUp className="w-5 h-5 text-blue-600" />}
+                    {activity.type === 'pickup' && <Calendar className="w-5 h-5 text-blue-600" />}
+                  </div>
+                  <div className="flex-1">
+                    <p className="text-gray-900">{activity.text}</p>
+                    <p className="text-xs text-muted-foreground">{activity.time}</p>
+                  </div>
                 </div>
-                <div className="flex-1">
-                  <p className="text-gray-900">{activity.text}</p>
-                  <p className="text-xs text-muted-foreground">{activity.time}</p>
-                </div>
+              ))
+            ) : (
+              <div className="text-center py-8 text-muted-foreground">
+                <MessageSquare className="w-12 h-12 mx-auto mb-2 opacity-30" />
+                <p className="text-sm">No recent messages</p>
+                <p className="text-xs mt-1">Messages about your listings will appear here</p>
               </div>
-            ))}
+            )}
           </div>
         </Card>
       </div>

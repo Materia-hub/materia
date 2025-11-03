@@ -23,13 +23,18 @@ export default function Favorites({ accessToken, onListingClick }: FavoritesProp
   }, [accessToken]);
 
   const fetchFavorites = async () => {
-    if (!accessToken) return;
+    if (!accessToken || accessToken === '') return;
     
     try {
       setLoading(true);
       const response = await api.getFavorites(accessToken);
       setFavorites(response.favorites || []);
     } catch (error) {
+      // Silently fail if user is not authenticated
+      if (error instanceof Error && error.message.includes('Unauthorized')) {
+        setFavorites([]);
+        return;
+      }
       console.error('Error fetching favorites:', error);
       toast.error('Failed to load favorites');
     } finally {
@@ -40,15 +45,24 @@ export default function Favorites({ accessToken, onListingClick }: FavoritesProp
   const handleRemoveFavorite = async (listingId: string, e: React.MouseEvent) => {
     e.stopPropagation();
     
-    if (!accessToken) return;
+    if (!accessToken || accessToken === '') return;
     
     try {
       await api.removeFavorite(listingId, accessToken);
-      setFavorites(prev => prev.filter(f => f.listingId !== listingId));
+      setFavorites(prev => prev.filter(f => f && f.listingId !== listingId));
       toast.success('Removed from favorites');
     } catch (error) {
-      console.error('Error removing favorite:', error);
-      toast.error('Failed to remove favorite');
+      if (error instanceof Error) {
+        if (error.message.includes('Unauthorized')) {
+          toast.error('Please sign in to remove favorites');
+        } else {
+          console.error('Error removing favorite:', error);
+          toast.error(error.message || 'Failed to remove favorite');
+        }
+      } else {
+        console.error('Error removing favorite:', error);
+        toast.error('Failed to remove favorite');
+      }
     }
   };
 
@@ -85,7 +99,7 @@ export default function Favorites({ accessToken, onListingClick }: FavoritesProp
         </Card>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {favorites.map((favorite) => {
+          {favorites.filter(f => f && f.listingId && f.listing).map((favorite) => {
             const listing = favorite.listing;
             return (
               <Card

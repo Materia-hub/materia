@@ -358,8 +358,13 @@ app.get("/make-server-8ae6fee0/favorites", async (c) => {
       return c.json({ error: 'Unauthorized' }, 401);
     }
     
+    // 🐛 FIX: getByPrefix returns VALUES directly, not {key, value} objects
     const favorites = await kv.getByPrefix(`favorite:${user.id}:`);
-    const favoriteListings = favorites.map((item: any) => item.value);
+    const favoriteListings = favorites
+      .filter((item: any) => item && item.listingId)
+      .map((item: any) => item);
+    
+    console.log(`✅ Returning ${favoriteListings.length} favorites for user ${user.id}`);
     
     return c.json({ favorites: favoriteListings });
   } catch (error) {
@@ -441,9 +446,9 @@ app.get("/make-server-8ae6fee0/listings/:id/reviews", async (c) => {
   try {
     const listingId = c.req.param('id');
     const reviews = await kv.getByPrefix(`review:listing:${listingId}:`);
-    const reviewList = reviews.map((item: any) => item.value);
     
-    return c.json({ reviews: reviewList });
+    // getByPrefix already returns values directly, not objects with .value property
+    return c.json({ reviews });
   } catch (error) {
     console.error('Error fetching reviews:', error);
     return c.json({ error: 'Failed to fetch reviews', details: error.message }, 500);
@@ -455,9 +460,9 @@ app.get("/make-server-8ae6fee0/sellers/:sellerId/reviews", async (c) => {
   try {
     const sellerId = c.req.param('sellerId');
     const reviews = await kv.getByPrefix(`review:seller:${sellerId}:`);
-    const reviewList = reviews.map((item: any) => item.value);
     
-    return c.json({ reviews: reviewList });
+    // getByPrefix already returns values directly, not objects with .value property
+    return c.json({ reviews });
   } catch (error) {
     console.error('Error fetching seller reviews:', error);
     return c.json({ error: 'Failed to fetch reviews', details: error.message }, 500);
@@ -1001,8 +1006,9 @@ app.get("/make-server-8ae6fee0/analytics", async (c) => {
     // Get favorites for seller's listings
     const allFavorites = await kv.getByPrefix('favorite:');
     const sellerFavorites = allFavorites
+      .filter((item: any) => item && item.value && item.value.listingId)
       .map((item: any) => item.value)
-      .filter((fav: any) => sellerListings.some((l: any) => l.id === fav.listingId));
+      .filter((fav: any) => fav && sellerListings.some((l: any) => l.id === fav.listingId));
     
     // Get reviews for seller
     const sellerReviews = await kv.getByPrefix(`review:seller:${user.id}:`);
@@ -1024,7 +1030,7 @@ app.get("/make-server-8ae6fee0/analytics", async (c) => {
       }
       acc[cat].count += 1;
       acc[cat].views += listing.views || 0;
-      acc[cat].favorites += sellerFavorites.filter((f: any) => f.listingId === listing.id).length;
+      acc[cat].favorites += sellerFavorites.filter((f: any) => f && f.listingId === listing.id).length;
       return acc;
     }, {});
     
@@ -1037,7 +1043,7 @@ app.get("/make-server-8ae6fee0/analytics", async (c) => {
     );
     
     const recentFavorites = sellerFavorites.filter((f: any) => 
-      new Date(f.createdAt) >= thirtyDaysAgo
+      f && f.createdAt && new Date(f.createdAt) >= thirtyDaysAgo
     );
     
     const recentReviews = reviews.filter((r: any) => 
@@ -1065,7 +1071,7 @@ app.get("/make-server-8ae6fee0/analytics", async (c) => {
           id: l.id,
           title: l.title,
           views: l.views || 0,
-          favorites: sellerFavorites.filter((f: any) => f.listingId === l.id).length,
+          favorites: sellerFavorites.filter((f: any) => f && f.listingId === l.id).length,
         })),
     };
     

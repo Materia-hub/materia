@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { Package2, MessageSquare, FileCheck, Calendar, LayoutDashboard, ShieldCheck, LogOut, Menu, X, Heart, BarChart3, Search, Bell, ChevronDown } from 'lucide-react';
+import { Package2, MessageSquare, FileCheck, Calendar, LayoutDashboard, ShieldCheck, LogOut, Menu, X, Heart, BarChart3, Search, Bell, User, Settings, ChevronDown } from 'lucide-react';
 import { Button } from './components/ui/button';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from './components/ui/dropdown-menu';
 import { Toaster } from './components/ui/sonner';
 import { ImageWithFallback } from './components/figma/ImageWithFallback';
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuSeparator } from './components/ui/dropdown-menu';
 import { supabase } from './utils/supabase/client';
 import ErrorBoundary from './components/ErrorBoundary';
 import Dashboard from './components/Dashboard';
@@ -21,13 +21,9 @@ import Favorites from './components/Favorites';
 import SellerAnalytics from './components/SellerAnalytics';
 import SavedSearches from './components/SavedSearches';
 import NotificationPreferences from './components/NotificationPreferences';
-import DeploymentStatus from './components/DeploymentStatus';
-import DebugModeBanner from './components/DebugModeBanner';
+import MateriaLogo from './components/MateriaLogo';
 import { mockListings, Listing } from './components/data/mockData';
 import { api } from './utils/api';
-import { DEBUG_MODE, SHOW_DEPLOYMENT_STATUS } from './utils/config';
-
-// NOTE: SellerDirectory, ActivityFeed, and SellerProfile are excluded due to Figma webpack errors
 
 type View = 
   | 'dashboard' 
@@ -76,70 +72,56 @@ function App() {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isOnboarding, setIsOnboarding] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
-  const [listings, setListings] = useState<Listing[]>(mockListings);
+  const [listings, setListings] = useState<Listing[]>([]);
+  const [isInitialized, setIsInitialized] = useState(false);
 
-  // Set browser title
-  useEffect(() => {
-    document.title = 'Materia - Buy and Sell Material For Your Project';
-  }, []);
-
-  useEffect(() => {
-    initializeAuth();
-    loadListings(); // Load listings on mount
-  }, []);
-
-  // Load listings from backend
+  // Load listings function
   const loadListings = async () => {
     try {
-      console.log('📥 Loading listings from backend...');
       const response = await api.getListings();
-      console.log('📡 Backend response:', response);
       const backendListings = response.listings || [];
-      console.log(`✅ Loaded ${backendListings.length} listings from backend`);
-      
-      if (backendListings.length > 0) {
-        console.log('📋 First listing:', backendListings[0]);
-        console.log('👤 Current user ID:', currentUser?.id);
-      } else {
-        console.warn('⚠️ No listings returned from backend!');
-      }
-      
-      // Use backend listings if available, otherwise fallback to mock data (which is now empty)
-      const allListings = backendListings.length > 0 ? backendListings : mockListings;
-      console.log(`📊 Setting ${allListings.length} total listings in state`);
-      setListings(allListings);
+      setListings(backendListings.length > 0 ? backendListings : mockListings);
     } catch (error) {
-      console.error('❌ Error loading listings:', error);
-      // Fallback to mock data on error (which is now empty)
+      console.error('Error loading listings:', error);
       setListings(mockListings);
     }
   };
 
-  const initializeAuth = async () => {
-    const storedUser = localStorage.getItem('materia_user');
-    if (storedUser) {
-      try {
-        const user = JSON.parse(storedUser);
-        setCurrentUser(user);
-        setIsOnboarding(false);
-        
-        // Get session token
-        const { data } = await supabase.auth.getSession();
-        if (data.session) {
-          setAccessToken(data.session.access_token);
+  // Initialize auth and load data
+  useEffect(() => {
+    document.title = 'Materia - Buy and Sell Material For Your Project';
+    
+    const initializeAuth = async () => {
+      const storedUser = localStorage.getItem('materia_user');
+      if (storedUser) {
+        try {
+          const user = JSON.parse(storedUser);
+          setCurrentUser(user);
+          setCurrentView('dashboard'); // Logged-in users see dashboard
+          
+          // Get session token
+          const { data } = await supabase.auth.getSession();
+          if (data.session) {
+            setAccessToken(data.session.access_token);
+          }
+        } catch (e) {
+          console.error('Error loading user:', e);
         }
-      } catch (e) {
-        console.error('Error loading user:', e);
-        setIsOnboarding(false); // Allow public browsing
       }
-    } else {
-      setIsOnboarding(false); // Allow public browsing without login
-    }
-  };
+      // If no stored user, that's fine - public browsing enabled
+    };
+
+    const init = async () => {
+      await initializeAuth();
+      await loadListings();
+      setIsInitialized(true);
+    };
+
+    init();
+  }, []);
 
   const handleOnboardingComplete = async (userData: any) => {
-    console.log('👤 User logged in:', userData);
-    console.log('🆔 User ID:', userData.id);
+    console.log('User logged in:', userData);
     const userWithDefaults = {
       ...userData,
       subscriptionTier: userData.subscriptionTier || 'free',
@@ -148,15 +130,15 @@ function App() {
     setCurrentUser(userWithDefaults);
     localStorage.setItem('materia_user', JSON.stringify(userWithDefaults));
     setIsOnboarding(false);
+    setCurrentView('dashboard'); // Show dashboard after login
     
     // Get session token
     const { data } = await supabase.auth.getSession();
     if (data.session) {
       setAccessToken(data.session.access_token);
     }
-    
-    // Load listings after login
-    console.log('🔄 Loading listings after login...');
+
+    // Reload listings
     await loadListings();
   };
 
@@ -165,8 +147,7 @@ function App() {
     setCurrentUser(null);
     setAccessToken(null);
     localStorage.removeItem('materia_user');
-    setIsOnboarding(true);
-    setCurrentView('listings');
+    setCurrentView('listings'); // Return to public listings view
   };
 
   const handleViewListing = (listingId: string) => {
@@ -175,30 +156,28 @@ function App() {
   };
 
   const handleEditListing = (listingId: string) => {
-    setEditingListingId(listingId);
-    setCurrentView('create-listing');
+    if (!currentUser) {
+      setIsOnboarding(true);
+    } else {
+      setEditingListingId(listingId);
+      setCurrentView('create-listing');
+    }
   };
 
   const handleCreateListing = () => {
-    setEditingListingId(null);
-    setCurrentView('create-listing');
+    if (!currentUser) {
+      setIsOnboarding(true);
+    } else {
+      setEditingListingId(null);
+      setCurrentView('create-listing');
+    }
   };
 
-  const handleBackToListings = () => {
+  const handleBackToListings = async () => {
     setSelectedListingId(null);
     setEditingListingId(null);
-    loadListings(); // Refresh listings when returning
     setCurrentView('listings');
-  };
-
-  const handleNavigate = (page: string) => {
-    console.log(`🧭 Navigating to: ${page}`);
-    // Refresh listings when navigating to pages that display listings
-    if (page === 'listings' || page === 'dashboard') {
-      console.log('📥 Refreshing listings...');
-      loadListings();
-    }
-    setCurrentView(page as View);
+    await loadListings(); // Refresh listings
   };
 
   const handleUpdateProfile = (updatedUser: Partial<User>) => {
@@ -209,12 +188,25 @@ function App() {
     }
   };
 
-  const handleDeleteListing = () => {
+  const handleDeleteListing = async () => {
     console.log('Listing deleted, refreshing...');
-    loadListings(); // Refresh listings after delete
-    setCurrentView('dashboard');
+    await loadListings(); // Refresh listings
+    setCurrentView(currentUser ? 'dashboard' : 'listings');
   };
 
+  // Show loading state
+  if (!isInitialized) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-blue-50 via-sky-50 to-blue-100 flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+          <p className="text-gray-600">Loading Materia...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Show onboarding modal when requested
   if (isOnboarding) {
     return (
       <ErrorBoundary>
@@ -224,47 +216,59 @@ function App() {
     );
   }
 
+  // Public browsing enabled - currentUser can be null
+
+  // Navigation items - only show protected items when logged in
   const navigationItems = [
-    { id: 'listings', label: 'Browse Listings', icon: Package2 },
+    { id: 'listings', label: 'Browse Listings', icon: Package2, public: true },
     ...(currentUser ? [
-      { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
-      { id: 'favorites', label: 'Favorites', icon: Heart },
-      { id: 'saved-searches', label: 'Saved Searches', icon: Search },
-      { id: 'enhanced-messages', label: 'Messages', icon: MessageSquare },
-      { id: 'transactions', label: 'Transactions', icon: FileCheck },
-      { id: 'pickup', label: 'Pickup Schedule', icon: Calendar },
-    ] : []),
-    ...(currentUser?.role === 'seller' ? [
-      { id: 'analytics', label: 'Analytics', icon: BarChart3 }
-    ] : []),
-    ...(currentUser?.role === 'admin' ? [
-      { id: 'admin', label: 'Admin Panel', icon: ShieldCheck }
+      { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, public: false },
+      { id: 'favorites', label: 'Favorites', icon: Heart, public: false },
+      { id: 'saved-searches', label: 'Saved Searches', icon: Search, public: false },
+      { id: 'enhanced-messages', label: 'Messages', icon: MessageSquare, public: false },
+      { id: 'transactions', label: 'Transactions', icon: FileCheck, public: false },
+      { id: 'pickup', label: 'Pickup Schedule', icon: Calendar, public: false },
+      ...(currentUser.role === 'seller' ? [
+        { id: 'analytics', label: 'Analytics', icon: BarChart3, public: false }
+      ] : []),
+      ...(currentUser.role === 'admin' ? [
+        { id: 'admin', label: 'Admin Panel', icon: ShieldCheck, public: false }
+      ] : []),
     ] : []),
   ];
 
   const renderContent = () => {
-    // Public view - show listings to everyone
+    // Protected views - require login
     if (!currentUser && currentView !== 'listings' && currentView !== 'listing-detail') {
-      setCurrentView('listings');
+      return (
+        <div className="p-6">
+          <div className="bg-blue-50 border border-blue-200 rounded-lg p-6 text-center">
+            <p className="text-blue-800 mb-4">Please sign in to access this feature.</p>
+            <Button onClick={() => setIsOnboarding(true)} className="bg-blue-600 text-white">
+              Sign In / Sign Up
+            </Button>
+          </div>
+        </div>
+      );
     }
 
     switch (currentView) {
       case 'dashboard':
-        if (!currentUser) return null;
-        return (
+        return currentUser ? (
           <Dashboard
-            onNavigate={handleNavigate}
+            onNavigate={(page: string) => setCurrentView(page as View)}
             onViewListing={handleViewListing}
+            onEditListing={handleEditListing}
             onDeleteListing={handleDeleteListing}
-            onRefreshListings={loadListings}
             listings={listings}
             currentUser={{
               id: currentUser.id,
               subscriptionTier: currentUser.subscriptionTier || 'free',
               membershipStatus: currentUser.membershipStatus || 'Basic',
             }}
+            accessToken={accessToken || undefined}
           />
-        );
+        ) : null;
       case 'listings':
         return (
           <Listings
@@ -288,11 +292,7 @@ function App() {
           />
         ) : null;
       case 'create-listing':
-        if (!currentUser) {
-          setIsOnboarding(true);
-          return null;
-        }
-        return (
+        return currentUser ? (
           <CreateListing
             accessToken={accessToken}
             editingListingId={editingListingId}
@@ -303,19 +303,15 @@ function App() {
               subscriptionTier: currentUser.subscriptionTier || 'free',
             }}
           />
-        );
+        ) : null;
       case 'enhanced-messages':
-        if (!currentUser) return null;
-        return <EnhancedMessages accessToken={accessToken} currentUserId={currentUser.id} onViewListing={handleViewListing} />;
+        return currentUser ? <EnhancedMessages accessToken={accessToken} currentUserId={currentUser.id} onViewListing={handleViewListing} /> : null;
       case 'transactions':
-        if (!currentUser) return null;
-        return <Transactions accessToken={accessToken} currentUserId={currentUser.id} />;
+        return currentUser ? <Transactions accessToken={accessToken} currentUserId={currentUser.id} /> : null;
       case 'pickup':
-        if (!currentUser) return null;
-        return <PickupScheduler accessToken={accessToken} currentUserId={currentUser.id} />;
+        return currentUser ? <PickupScheduler accessToken={accessToken} currentUserId={currentUser.id} /> : null;
       case 'admin':
-        if (!currentUser) return null;
-        return currentUser.role === 'admin' ? (
+        return currentUser?.role === 'admin' ? (
           <AdminPanel accessToken={accessToken} />
         ) : (
           <div className="p-6">
@@ -325,48 +321,44 @@ function App() {
           </div>
         );
       case 'profile':
-        if (!currentUser) return null;
-        return (
+        return currentUser ? (
           <UserProfile
             user={{
               id: currentUser.id,
               name: currentUser.name,
               email: currentUser.email,
               role: currentUser.role,
-              businessType: currentUser.businessType || '',
-              location: currentUser.location || '',
+              businessType: currentUser.businessType || 'General',
+              location: currentUser.location || 'Not specified',
               membershipStatus: currentUser.membershipStatus || 'Basic',
               subscriptionTier: currentUser.subscriptionTier || 'free',
               joinDate: currentUser.joinDate || currentUser.memberSince || new Date().toISOString(),
               avatar: currentUser.avatar || currentUser.name.charAt(0).toUpperCase(),
-              isAdmin: currentUser.isAdmin || currentUser.role === 'admin',
+              isAdmin: currentUser.role === 'admin',
             }}
             onUpdateUser={handleUpdateProfile}
-            onNavigate={handleNavigate}
+            onNavigate={(page: string) => setCurrentView(page as View)}
           />
-        );
+        ) : null;
       case 'notifications':
-        if (!currentUser) return null;
-        return (
+        return currentUser ? (
           <NotificationsPage
             accessToken={accessToken}
             currentUserId={currentUser.id}
             onViewListing={handleViewListing}
             onClearAll={() => setUnreadCount(0)}
           />
-        );
+        ) : null;
       case 'favorites':
-        if (!currentUser) return null;
-        return (
+        return currentUser ? (
           <Favorites
             accessToken={accessToken}
             currentUserId={currentUser.id}
             onViewListing={handleViewListing}
           />
-        );
+        ) : null;
       case 'analytics':
-        if (!currentUser) return null;
-        return currentUser.role === 'seller' ? (
+        return currentUser?.role === 'seller' ? (
           <SellerAnalytics accessToken={accessToken} sellerId={currentUser.id} />
         ) : (
           <div className="p-6">
@@ -376,48 +368,29 @@ function App() {
           </div>
         );
       case 'saved-searches':
-        if (!currentUser) return null;
-        return (
+        return currentUser ? (
           <SavedSearches
             accessToken={accessToken}
             currentUserId={currentUser.id}
             onViewResults={() => setCurrentView('listings')}
           />
-        );
+        ) : null;
       case 'notification-preferences':
-        if (!currentUser) return null;
-        return (
+        return currentUser ? (
           <NotificationPreferences
             accessToken={accessToken}
             currentUserId={currentUser.id}
             onBack={() => setCurrentView('profile')}
           />
-        );
+        ) : null;
       default:
-        // Default to listings for public, dashboard for logged in users
-        if (!currentUser) {
-          return (
-            <Listings
-              accessToken={accessToken}
-              currentUserId={''}
-              onViewListing={handleViewListing}
-              onEditListing={handleEditListing}
-              listings={listings}
-            />
-          );
-        }
         return (
-          <Dashboard
-            onNavigate={handleNavigate}
+          <Listings
+            accessToken={accessToken}
+            currentUserId={currentUser?.id || ''}
             onViewListing={handleViewListing}
-            onDeleteListing={handleDeleteListing}
-            onRefreshListings={loadListings}
+            onEditListing={handleEditListing}
             listings={listings}
-            currentUser={{
-              id: currentUser.id,
-              subscriptionTier: currentUser.subscriptionTier || 'free',
-              membershipStatus: currentUser.membershipStatus || 'Basic',
-            }}
           />
         );
     }
@@ -426,125 +399,100 @@ function App() {
   return (
     <ErrorBoundary>
       <div className="min-h-screen bg-gradient-to-br from-blue-50 via-sky-50 to-blue-100">
-        {/* Debug Mode Warning Banner */}
-        <DebugModeBanner />
-        
         {/* Header */}
         <header className="bg-white border-b border-blue-100 sticky top-0 z-50 shadow-sm">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="flex justify-between items-center h-16">
               {/* Logo */}
-              <div className="flex items-center gap-3 cursor-pointer" onClick={() => handleNavigate('listings')}>
+              <div className="flex items-center gap-3 cursor-pointer" onClick={() => currentUser ? setCurrentView('dashboard') : setCurrentView('listings')}>
+                <MateriaLogo size={36} />
                 <h1 className="text-xl materia-brand">Materia</h1>
               </div>
 
               {/* Desktop Navigation */}
               <nav className="hidden md:flex items-center gap-2">
-                {/* Browse Listings - Always Visible */}
+                {/* Browse Listings - Always visible */}
                 <Button
                   variant={currentView === 'listings' ? 'default' : 'ghost'}
                   size="sm"
-                  onClick={() => handleNavigate('listings')}
+                  onClick={() => setCurrentView('listings')}
                   className={currentView === 'listings' ? 'bg-blue-600 text-white' : 'text-gray-700 hover:text-blue-600'}
                 >
                   <Package2 className="h-4 w-4 mr-2" />
                   Browse Listings
                 </Button>
 
-                {currentUser ? (
-                  <>
-                    {/* Create Listing Button - Prominent */}
-                    <Button
-                      variant="default"
-                      size="sm"
-                      onClick={handleCreateListing}
-                      className="bg-green-600 hover:bg-green-700 text-white"
-                    >
-                      <Package2 className="h-4 w-4 mr-2" />
-                      Create Listing
-                    </Button>
-
-                    {/* Dropdown Menu for Other Items */}
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" size="sm" className="text-gray-700 hover:text-blue-600">
-                          <Menu className="h-4 w-4 mr-2" />
-                          Menu
-                          <ChevronDown className="h-4 w-4 ml-1" />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end" className="w-56">
-                        <DropdownMenuItem onClick={() => handleNavigate('dashboard')}>
-                          <LayoutDashboard className="h-4 w-4 mr-2" />
-                          Dashboard
-                        </DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => handleNavigate('favorites')}>
-                          <Heart className="h-4 w-4 mr-2" />
-                          Favorites
-                        </DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => handleNavigate('saved-searches')}>
-                          <Search className="h-4 w-4 mr-2" />
-                          Saved Searches
-                        </DropdownMenuItem>
-                        <DropdownMenuSeparator />
-                        <DropdownMenuItem onClick={() => handleNavigate('enhanced-messages')}>
-                          <MessageSquare className="h-4 w-4 mr-2" />
-                          Messages
-                        </DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => handleNavigate('transactions')}>
-                          <FileCheck className="h-4 w-4 mr-2" />
-                          Transactions
-                        </DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => handleNavigate('pickup')}>
-                          <Calendar className="h-4 w-4 mr-2" />
-                          Pickup Schedule
-                        </DropdownMenuItem>
-                        {currentUser.role === 'seller' && (
-                          <>
-                            <DropdownMenuSeparator />
-                            <DropdownMenuItem onClick={() => handleNavigate('analytics')}>
-                              <BarChart3 className="h-4 w-4 mr-2" />
-                              Analytics
-                            </DropdownMenuItem>
-                          </>
-                        )}
-                        {currentUser.role === 'admin' && (
-                          <>
-                            <DropdownMenuSeparator />
-                            <DropdownMenuItem onClick={() => handleNavigate('admin')}>
-                              <ShieldCheck className="h-4 w-4 mr-2" />
-                              Admin Panel
-                            </DropdownMenuItem>
-                          </>
-                        )}
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </>
-                ) : (
-                  /* Sign In Button for non-logged-in users */
-                  <Button
-                    variant="default"
-                    size="sm"
-                    onClick={() => setIsOnboarding(true)}
-                    className="bg-blue-600 hover:bg-blue-700 text-white"
-                  >
-                    Sign In / Sign Up
-                  </Button>
+                {/* My Activity Dropdown - Only when logged in */}
+                {currentUser && (
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button variant="ghost" size="sm" className="text-gray-700 hover:text-blue-600">
+                        Menu
+                        <ChevronDown className="h-4 w-4 ml-1" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end" className="w-56">
+                      <DropdownMenuLabel>My Account</DropdownMenuLabel>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem onClick={() => setCurrentView('dashboard')}>
+                        <LayoutDashboard className="h-4 w-4 mr-2" />
+                        Dashboard
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => setCurrentView('favorites')}>
+                        <Heart className="h-4 w-4 mr-2" />
+                        Favorites
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => setCurrentView('saved-searches')}>
+                        <Search className="h-4 w-4 mr-2" />
+                        Saved Searches
+                      </DropdownMenuItem>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuLabel>Activity</DropdownMenuLabel>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem onClick={() => setCurrentView('enhanced-messages')}>
+                        <MessageSquare className="h-4 w-4 mr-2" />
+                        Messages
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => setCurrentView('transactions')}>
+                        <FileCheck className="h-4 w-4 mr-2" />
+                        Transactions
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => setCurrentView('pickup')}>
+                        <Calendar className="h-4 w-4 mr-2" />
+                        Pickup Schedule
+                      </DropdownMenuItem>
+                      {currentUser.role === 'seller' && (
+                        <>
+                          <DropdownMenuSeparator />
+                          <DropdownMenuItem onClick={() => setCurrentView('analytics')}>
+                            <BarChart3 className="h-4 w-4 mr-2" />
+                            Analytics
+                          </DropdownMenuItem>
+                        </>
+                      )}
+                      {currentUser.role === 'admin' && (
+                        <>
+                          <DropdownMenuSeparator />
+                          <DropdownMenuItem onClick={() => setCurrentView('admin')}>
+                            <ShieldCheck className="h-4 w-4 mr-2" />
+                            Admin Panel
+                          </DropdownMenuItem>
+                        </>
+                      )}
+                    </DropdownMenuContent>
+                  </DropdownMenu>
                 )}
               </nav>
 
               {/* User Actions */}
               <div className="flex items-center gap-3">
-                {/* Deployment Status Indicator - Only shown in DEBUG_MODE */}
-                {DEBUG_MODE && SHOW_DEPLOYMENT_STATUS && <DeploymentStatus />}
-                
                 {currentUser ? (
                   <>
                     {/* Notifications */}
                     <Button
                       variant="ghost"
                       size="sm"
-                      onClick={() => handleNavigate('notifications')}
+                      onClick={() => setCurrentView('notifications')}
                       className="relative"
                     >
                       <Bell className="h-5 w-5 text-gray-600" />
@@ -555,38 +503,52 @@ function App() {
                       )}
                     </Button>
 
-                    {/* User Profile Button */}
-                    <div className="flex items-center gap-2">
-                      <div className="hidden sm:block text-right">
-                        <p className="text-sm text-gray-800">{currentUser.name}</p>
-                        <p className="text-xs text-gray-500 capitalize hidden">{currentUser.role}</p>
-                      </div>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => handleNavigate('profile')}
-                        className="p-1"
-                      >
-                        {currentUser.avatar ? (
-                          <ImageWithFallback
-                            src={currentUser.avatar}
-                            alt={currentUser.name}
-                            className="h-8 w-8 rounded-full"
-                          />
-                        ) : (
-                          <div className="h-8 w-8 rounded-full bg-blue-600 flex items-center justify-center text-white">
-                            {currentUser.name.charAt(0).toUpperCase()}
+                    {/* User Profile Dropdown */}
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button variant="ghost" size="sm" className="flex items-center gap-2">
+                          <div className="h-8 w-8 rounded-full bg-blue-600 flex items-center justify-center p-1.5">
+                            <MateriaLogo size={20} className="text-white" />
                           </div>
-                        )}
-                      </Button>
-                    </div>
-
-                    {/* Logout */}
-                    <Button variant="ghost" size="sm" onClick={handleLogout} className="text-gray-600 hover:text-red-600">
-                      <LogOut className="h-5 w-5" />
-                    </Button>
+                          <div className="hidden sm:block text-left">
+                            <p className="text-sm text-gray-800">{currentUser.name}</p>
+                          </div>
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end" className="w-56">
+                        <DropdownMenuLabel>
+                          <div className="flex flex-col space-y-1">
+                            <p className="text-sm">{currentUser.name}</p>
+                            <p className="text-xs text-gray-500">{currentUser.email}</p>
+                          </div>
+                        </DropdownMenuLabel>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem onClick={() => setCurrentView('profile')}>
+                          <User className="h-4 w-4 mr-2" />
+                          Profile Settings
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => setCurrentView('notification-preferences')}>
+                          <Settings className="h-4 w-4 mr-2" />
+                          Preferences
+                        </DropdownMenuItem>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem onClick={handleLogout} className="text-red-600">
+                          <LogOut className="h-4 w-4 mr-2" />
+                          Logout
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
                   </>
-                ) : null}
+                ) : (
+                  /* Sign In Button for non-logged-in users */
+                  <Button
+                    onClick={() => setIsOnboarding(true)}
+                    className="bg-blue-600 text-white"
+                    size="sm"
+                  >
+                    Sign In / Sign Up
+                  </Button>
+                )}
 
                 {/* Mobile Menu Toggle */}
                 <Button
@@ -614,7 +576,7 @@ function App() {
                       variant={isActive ? 'default' : 'ghost'}
                       size="sm"
                       onClick={() => {
-                        handleNavigate(item.id);
+                        setCurrentView(item.id as View);
                         setIsMobileMenuOpen(false);
                       }}
                       className={`w-full justify-start ${isActive ? 'bg-blue-600 text-white' : 'text-gray-700'}`}

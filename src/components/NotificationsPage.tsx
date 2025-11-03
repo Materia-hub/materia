@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Bell, Check, Trash2, Star, Heart, MessageCircle, ShoppingCart, CheckCircle2, X } from 'lucide-react';
+import { Bell, Check, Trash2 } from 'lucide-react';
 import { Card } from './ui/card';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
@@ -32,36 +32,50 @@ export default function NotificationsPage({ accessToken, currentUserId, onViewLi
   const [filter, setFilter] = useState<'all' | 'unread'>('all');
 
   useEffect(() => {
-    loadNotifications();
-  }, [accessToken]);
+    let mounted = true;
 
-  const loadNotifications = async () => {
-    if (!accessToken) return;
-    
-    try {
-      setLoading(true);
-      const response = await api.getNotifications(accessToken);
-      setNotifications(response.notifications || []);
-    } catch (error) {
-      console.error('Error loading notifications:', error);
-      toast.error('Failed to load notifications');
-    } finally {
-      setLoading(false);
-    }
-  };
+    const loadNotifications = async () => {
+      if (!accessToken) {
+        if (mounted) {
+          setLoading(false);
+          setNotifications([]);
+        }
+        return;
+      }
+      
+      try {
+        if (mounted) setLoading(true);
+        const response = await api.getNotifications(accessToken);
+        if (mounted) {
+          setNotifications(response.notifications || []);
+        }
+      } catch (error) {
+        console.error('Error loading notifications:', error);
+        if (mounted) {
+          setNotifications([]);
+        }
+      } finally {
+        if (mounted) setLoading(false);
+      }
+    };
+
+    loadNotifications();
+
+    return () => {
+      mounted = false;
+    };
+  }, [accessToken]);
 
   const markAsRead = async (notificationId: string) => {
     if (!accessToken) return;
     
     try {
-      await api.markNotificationRead(accessToken, notificationId);
-      setNotifications(notifications.map(n => 
+      await api.markNotificationRead(notificationId, accessToken);
+      setNotifications(prev => prev.map(n => 
         n.id === notificationId ? { ...n, read: true } : n
       ));
-      toast.success('Notification marked as read');
     } catch (error) {
       console.error('Error marking notification as read:', error);
-      toast.error('Failed to update notification');
     }
   };
 
@@ -70,7 +84,7 @@ export default function NotificationsPage({ accessToken, currentUserId, onViewLi
     
     try {
       await api.markAllNotificationsRead(accessToken);
-      setNotifications(notifications.map(n => ({ ...n, read: true })));
+      setNotifications(prev => prev.map(n => ({ ...n, read: true })));
       if (onClearAll) onClearAll();
       toast.success('All notifications marked as read');
     } catch (error) {
@@ -79,17 +93,9 @@ export default function NotificationsPage({ accessToken, currentUserId, onViewLi
     }
   };
 
-  const deleteNotification = async (notificationId: string) => {
-    if (!accessToken) return;
-    
-    try {
-      await api.deleteNotification(accessToken, notificationId);
-      setNotifications(notifications.filter(n => n.id !== notificationId));
-      toast.success('Notification deleted');
-    } catch (error) {
-      console.error('Error deleting notification:', error);
-      toast.error('Failed to delete notification');
-    }
+  const deleteNotification = (notificationId: string) => {
+    setNotifications(prev => prev.filter(n => n.id !== notificationId));
+    toast.success('Notification deleted');
   };
 
   const handleNotificationClick = (notification: Notification) => {
@@ -99,23 +105,6 @@ export default function NotificationsPage({ accessToken, currentUserId, onViewLi
     
     if (notification.listingId && onViewListing) {
       onViewListing(notification.listingId);
-    }
-  };
-
-  const getNotificationIcon = (type: string) => {
-    switch (type) {
-      case 'favorite':
-        return <Heart className="h-5 w-5 text-red-500" />;
-      case 'review':
-        return <Star className="h-5 w-5 text-yellow-500" />;
-      case 'message':
-        return <MessageCircle className="h-5 w-5 text-blue-500" />;
-      case 'offer':
-        return <ShoppingCart className="h-5 w-5 text-green-500" />;
-      case 'purchase':
-        return <CheckCircle2 className="h-5 w-5 text-purple-500" />;
-      default:
-        return <Bell className="h-5 w-5 text-gray-500" />;
     }
   };
 
@@ -194,10 +183,6 @@ export default function NotificationsPage({ accessToken, currentUserId, onViewLi
                   onClick={() => handleNotificationClick(notification)}
                 >
                   <div className="flex items-start gap-4">
-                    <div className="mt-1">
-                      {getNotificationIcon(notification.type)}
-                    </div>
-                    
                     <div className="flex-1 min-w-0">
                       <div className="flex items-start justify-between gap-2">
                         <div className="flex-1">

@@ -135,8 +135,10 @@ export default function Reviews({ listingId, sellerId, accessToken, currentUserI
     );
   };
 
-  const averageRating = reviews.length > 0
-    ? (reviews.reduce((sum, review) => sum + review.rating, 0) / reviews.length).toFixed(1)
+  // Filter out any null/undefined reviews and calculate average
+  const validReviews = reviews.filter((review) => review && typeof review.rating === 'number');
+  const averageRating = validReviews.length > 0
+    ? (validReviews.reduce((sum, review) => sum + review.rating, 0) / validReviews.length).toFixed(1)
     : '0.0';
 
   const getTimeAgo = (dateString: string) => {
@@ -162,7 +164,7 @@ export default function Reviews({ listingId, sellerId, accessToken, currentUserI
               <div>
                 {renderStars(parseFloat(averageRating))}
                 <p className="text-sm text-muted-foreground mt-1">
-                  {reviews.length} {reviews.length === 1 ? 'review' : 'reviews'}
+                  {validReviews.length} {validReviews.length === 1 ? 'review' : 'reviews'}
                 </p>
               </div>
             </div>
@@ -234,7 +236,7 @@ export default function Reviews({ listingId, sellerId, accessToken, currentUserI
           <Card className="p-8 text-center text-muted-foreground">
             Loading reviews...
           </Card>
-        ) : reviews.length === 0 ? (
+        ) : validReviews.length === 0 ? (
           <Card className="p-8 text-center">
             <Star className="w-12 h-12 mx-auto text-gray-300 mb-3" />
             <p className="text-muted-foreground">No reviews yet</p>
@@ -244,7 +246,7 @@ export default function Reviews({ listingId, sellerId, accessToken, currentUserI
           </Card>
         ) : (
           <div className="space-y-4">
-            {reviews.map((review) => (
+            {validReviews.map((review) => (
               <Card key={review.id} className="p-6">
                 <div className="flex gap-4">
                   <Avatar className="w-10 h-10 bg-blue-100 text-blue-700 flex items-center justify-center">
